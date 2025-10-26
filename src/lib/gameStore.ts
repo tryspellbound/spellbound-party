@@ -87,8 +87,9 @@ export async function createGame(): Promise<GameState> {
     players: [],
     turns: [],
   };
-
+  console.log("Creating game", game);
   await persistGame(game);
+  console.log("Game created", game);
   return game;
 }
 

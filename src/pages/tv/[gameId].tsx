@@ -38,6 +38,7 @@ export default function TvGameView() {
 
   const fetchGame = useCallback(
     async (silent = false) => {
+      return;
       if (!ready || typeof gameId !== "string") return;
       if (!silent) {
         setLoading(true);
@@ -77,12 +78,17 @@ export default function TvGameView() {
   }, [game?.turns]);
 
   const startEngine = useCallback(() => {
-    if (!canAutoRun) return;
+    if (!canAutoRun) {
+      console.log("[TV ENGINE] Cannot start - canAutoRun is false");
+      return;
+    }
+    console.log("[TV ENGINE] Starting turn engine");
     setEngineActive(true);
     setEngineError(null);
   }, [canAutoRun]);
 
   const stopEngine = useCallback(() => {
+    console.log("[TV ENGINE] Stopping turn engine");
     setEngineActive(false);
     setEngineStatus("idle");
     setCooldownRemaining(0);
@@ -109,20 +115,58 @@ export default function TvGameView() {
   }, []);
 
   useEffect(() => {
-    if (!engineActive || !game?.id) return;
+    if (!engineActive || !game?.id) {
+      console.log(`[TV ENGINE] Effect skipped - engineActive: ${engineActive}, gameId: ${game?.id}`);
+      return;
+    }
 
+    console.log(`[TV ENGINE] Effect running for game ${game.id}`);
     let cancelled = false;
+    let turnCount = 0;
 
     const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
     const runTurnOnce = () =>
       new Promise<void>((resolve) => {
+        turnCount++;
+        const turnId = `turn-${turnCount}-${Date.now()}`;
+        console.log(`[TV ENGINE ${turnId}] Creating EventSource for /api/games/${game.id}/turns/stream`);
+        const connectionStart = Date.now();
+
         const source = new EventSource(`/api/games/${game.id}/turns/stream`);
         sourceRef.current = source;
         setEngineStatus("running");
         setStreamingNarration("");
         setStreamingImage(null);
         setLivePrompt(null);
+
+        // Track audio playback completion
+        let audioPlaybackComplete = false;
+        let streamComplete = false;
+        let audioPlaybackResolver: (() => void) | null = null;
+        const audioPlaybackPromise = new Promise<void>((resolveAudio) => {
+          audioPlaybackResolver = resolveAudio;
+        });
+
+        const checkComplete = () => {
+          if (streamComplete && audioPlaybackComplete) {
+            console.log(`[TV ENGINE ${turnId}] Both stream and audio playback complete, resolving turn`);
+            clearTimeout(audioSafetyTimeout);
+            resolve();
+          } else if (streamComplete && !audioPlaybackComplete) {
+            console.log(`[TV ENGINE ${turnId}] Stream complete, waiting for audio playback to finish...`);
+          }
+        };
+
+        // Safety timeout: if audio doesn't end within 5 minutes, force completion
+        const audioSafetyTimeout = setTimeout(() => {
+          if (!audioPlaybackComplete && streamComplete) {
+            console.warn(`[TV ENGINE ${turnId}] Audio playback timeout after 5 minutes, forcing completion`);
+            audioPlaybackComplete = true;
+            checkComplete();
+          }
+        }, 5 * 60 * 1000);
+
         // Clear audio queue and reset for new turn
         audioChunksQueue.current = [];
         hasStartedPlayback.current = false;
@@ -142,7 +186,17 @@ export default function TvGameView() {
         }
         sourceBufferRef.current = null;
 
+        source.addEventListener("open", () => {
+          console.log(`[TV ENGINE ${turnId}] EventSource connection opened`);
+        });
+
+        source.addEventListener("ping", (event) => {
+          const payload = JSON.parse((event as MessageEvent<string>).data) as { timestamp?: number };
+          console.log(`[TV ENGINE ${turnId}] Ping received (server time: ${payload.timestamp})`);
+        });
+
         const closeSource = () => {
+          console.log(`[TV ENGINE ${turnId}] Closing EventSource (duration: ${Date.now() - connectionStart}ms)`);
           source.close();
           if (sourceRef.current === source) {
             sourceRef.current = null;
@@ -157,6 +211,7 @@ export default function TvGameView() {
         source.addEventListener("image_prompt", (event) => {
           const payload = JSON.parse((event as MessageEvent<string>).data) as { prompt?: string };
           if (payload.prompt) {
+            console.log(`[TV ENGINE ${turnId}] Image prompt received: ${payload.prompt.substring(0, 80)}...`);
             setLivePrompt(payload.prompt);
           }
         });
@@ -164,6 +219,7 @@ export default function TvGameView() {
         source.addEventListener("image_partial", (event) => {
           const payload = JSON.parse((event as MessageEvent<string>).data) as { image?: string };
           if (payload.image) {
+            console.log(`[TV ENGINE ${turnId}] Image partial received`);
             setStreamingImage(payload.image);
           }
         });
@@ -171,6 +227,7 @@ export default function TvGameView() {
         source.addEventListener("image_complete", (event) => {
           const payload = JSON.parse((event as MessageEvent<string>).data) as { image?: string };
           if (payload.image) {
+            console.log(`[TV ENGINE ${turnId}] Image complete received`);
             setStreamingImage(payload.image);
           }
         });
@@ -246,8 +303,11 @@ export default function TvGameView() {
           const payload = JSON.parse((event as MessageEvent<string>).data) as { chunk?: string; index?: number };
           if (!payload.chunk) return;
 
+          console.log(`[TV ENGINE ${turnId}] Audio chunk received (index: ${payload.index})`);
+
           // Initialize MediaSource on first chunk
           if (!mediaSourceRef.current) {
+            console.log(`[TV ENGINE ${turnId}] Initializing MediaSource for audio`);
             initMediaSource();
           }
 
@@ -263,12 +323,12 @@ export default function TvGameView() {
             // Try to pump queue
             pumpAudioQueue();
           } catch (err) {
-            console.error("Failed to decode audio chunk:", err);
+            console.error(`[TV ENGINE ${turnId}] Failed to decode audio chunk:`, err);
           }
         });
 
         source.addEventListener("audio_complete", () => {
-          console.log("Audio streaming complete");
+          console.log(`[TV ENGINE ${turnId}] Audio streaming complete`);
 
           // End the stream once all chunks are appended
           const tryEndStream = () => {
@@ -282,8 +342,42 @@ export default function TvGameView() {
             } else if (audioChunksQueue.current.length === 0 && mediaSource.readyState === "open") {
               try {
                 mediaSource.endOfStream();
+                console.log(`[TV ENGINE ${turnId}] MediaSource stream ended, waiting for playback to finish`);
+
+                // Set up listener for when audio playback actually finishes
+                if (audioRef.current) {
+                  const audio = audioRef.current;
+
+                  const onAudioEnded = () => {
+                    console.log(`[TV ENGINE ${turnId}] Audio playback finished`);
+                    audioPlaybackComplete = true;
+                    audio.removeEventListener('ended', onAudioEnded);
+                    audio.removeEventListener('pause', onAudioEnded);
+                    checkComplete();
+                  };
+
+                  // Listen for both 'ended' (natural completion) and 'pause' (if stopped early)
+                  audio.addEventListener('ended', onAudioEnded);
+
+                  // If audio is already paused/ended, mark as complete immediately
+                  if (audio.paused && audio.currentTime === 0) {
+                    console.log(`[TV ENGINE ${turnId}] Audio already stopped, marking as complete`);
+                    audioPlaybackComplete = true;
+                    checkComplete();
+                  } else if (audio.ended) {
+                    console.log(`[TV ENGINE ${turnId}] Audio already ended, marking as complete`);
+                    onAudioEnded();
+                  }
+                } else {
+                  console.log(`[TV ENGINE ${turnId}] No audio element, marking playback as complete`);
+                  audioPlaybackComplete = true;
+                  checkComplete();
+                }
               } catch (err) {
-                console.error("Failed to end stream:", err);
+                console.error(`[TV ENGINE ${turnId}] Failed to end stream:`, err);
+                // Still mark as complete even if there was an error
+                audioPlaybackComplete = true;
+                checkComplete();
               }
             }
           };
@@ -293,13 +387,18 @@ export default function TvGameView() {
 
         source.addEventListener("audio_error", (event) => {
           const payload = JSON.parse((event as MessageEvent<string>).data) as { message?: string };
-          console.error("Audio error:", payload.message);
+          console.error(`[TV ENGINE ${turnId}] Audio error:`, payload.message);
+          // If audio generation failed, mark playback as complete so we don't wait forever
+          audioPlaybackComplete = true;
+          checkComplete();
         });
 
         source.addEventListener("turn_complete", (event) => {
           const payload = JSON.parse((event as MessageEvent<string>).data) as { turn: GameTurn };
+          console.log(`[TV ENGINE ${turnId}] Turn complete received - ID: ${payload.turn.id}`);
           setTurns((prev) => {
             if (prev.some((t) => t.id === payload.turn.id)) {
+              console.log(`[TV ENGINE ${turnId}] Turn ${payload.turn.id} already exists in state, skipping`);
               return prev;
             }
             return [...prev, payload.turn];
@@ -316,53 +415,95 @@ export default function TvGameView() {
 
         source.addEventListener("turn_error", (event) => {
           const payload = JSON.parse((event as MessageEvent<string>).data) as { message?: string };
+          console.error(`[TV ENGINE ${turnId}] Turn error received: ${payload.message}`);
           setEngineError(payload.message ?? "Turn generation failed");
           closeSource();
+          clearTimeout(audioSafetyTimeout);
+          // On error, mark both as complete and resolve immediately
+          streamComplete = true;
+          audioPlaybackComplete = true;
           resolve();
         });
 
         source.addEventListener("done", () => {
+          console.log(`[TV ENGINE ${turnId}] Done event received`);
           closeSource();
-          resolve();
+          streamComplete = true;
+
+          // If there was no audio generated, mark audio as complete
+          if (!audioRef.current || !mediaSourceRef.current) {
+            console.log(`[TV ENGINE ${turnId}] No audio was generated, marking as complete`);
+            audioPlaybackComplete = true;
+          }
+
+          checkComplete();
         });
 
-        source.onerror = () => {
+        source.onerror = (errorEvent) => {
+          console.error(`[TV ENGINE ${turnId}] EventSource error occurred:`, errorEvent);
+          console.error(`[TV ENGINE ${turnId}] EventSource readyState: ${source.readyState} (0=CONNECTING, 1=OPEN, 2=CLOSED)`);
+          console.error(`[TV ENGINE ${turnId}] Connection duration: ${Date.now() - connectionStart}ms`);
           setEngineError("Turn stream disconnected");
           closeSource();
+          clearTimeout(audioSafetyTimeout);
+          // On error, mark both as complete and resolve immediately
+          streamComplete = true;
+          audioPlaybackComplete = true;
           resolve();
         };
       });
 
     const loop = async () => {
+      console.log("[TV ENGINE] Loop started");
       while (!cancelled) {
+        console.log(`[TV ENGINE] Starting turn ${turnCount + 1}`);
         await runTurnOnce();
-        if (cancelled) break;
+        console.log(`[TV ENGINE] Turn ${turnCount} completed`);
+
+        if (cancelled) {
+          console.log("[TV ENGINE] Loop cancelled during turn");
+          break;
+        }
+
+        console.log(`[TV ENGINE] Starting ${COOLDOWN_SECONDS}s cooldown`);
         setEngineStatus("cooldown");
         for (let i = COOLDOWN_SECONDS; i > 0; i -= 1) {
-          if (cancelled) break;
+          if (cancelled) {
+            console.log("[TV ENGINE] Loop cancelled during cooldown");
+            break;
+          }
           setCooldownRemaining(i);
           // eslint-disable-next-line no-await-in-loop
           await wait(1000);
         }
         setCooldownRemaining(0);
+
         if (!canAutoRun) {
+          console.log("[TV ENGINE] Loop stopping - canAutoRun is false");
           break;
         }
+
+        console.log("[TV ENGINE] Cooldown complete, starting next turn");
       }
+
       if (!cancelled) {
+        console.log("[TV ENGINE] Loop ended naturally");
         setEngineStatus("idle");
         setEngineActive(false);
+      } else {
+        console.log("[TV ENGINE] Loop ended due to cancellation");
       }
     };
 
     loop().catch((err) => {
-      console.error(err);
+      console.error("[TV ENGINE] Loop error:", err);
       setEngineError("Turn engine failed");
       setEngineStatus("idle");
       setEngineActive(false);
     });
 
     return () => {
+      console.log("[TV ENGINE] Effect cleanup - cancelling loop");
       cancelled = true;
       sourceRef.current?.close();
     };

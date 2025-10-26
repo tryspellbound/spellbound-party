@@ -37,7 +37,7 @@ export async function streamTurnImage({ prompt, onEvent, signal }: ImageStreamOp
   const stream = await client.images.generate({
     model,
     prompt,
-    size: "1024x1536",
+    size: "1536x1024",
     stream: true,
     n: 1,
     partial_images: 3,
