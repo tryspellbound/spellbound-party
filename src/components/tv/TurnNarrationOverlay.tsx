@@ -24,15 +24,19 @@ export default function TurnNarrationOverlay({
   const [animate, setAnimate] = useState(false);
 
   // Calculate how many characters have been spoken based on playback time
+  // Add 50ms lookahead so the current word is always highlighted
   const spokenCharacterCount = useMemo(() => {
     if (!audioAlignment || audioPlaybackTime === 0) {
       return 0;
     }
 
+    const LOOKAHEAD_SECONDS = 0.05; // 50ms lookahead
+    const adjustedPlaybackTime = audioPlaybackTime + LOOKAHEAD_SECONDS;
+
     // Find the last character whose end time is less than current playback time
     let count = 0;
     for (let i = 0; i < audioAlignment.characterEndTimesSeconds.length; i++) {
-      if (audioAlignment.characterEndTimesSeconds[i] <= audioPlaybackTime) {
+      if (audioAlignment.characterEndTimesSeconds[i] <= adjustedPlaybackTime) {
         count = i + 1;
       } else {
         break;
@@ -114,18 +118,51 @@ export default function TurnNarrationOverlay({
     });
   }, [wordSegments, audioAlignment, spokenCharacterCount]);
 
-  // Auto-scroll to bottom as text updates
+  // Auto-scroll to keep the current spoken word in view
+  const currentWordRef = useRef<HTMLSpanElement>(null);
+
   useEffect(() => {
-    if (scrollRef.current) {
+    if (!currentWordRef.current || !scrollRef.current) {
+      return;
+    }
+
+    const scrollContainer = scrollRef.current;
+    const currentWord = currentWordRef.current;
+
+    // Get positions
+    const containerRect = scrollContainer.getBoundingClientRect();
+    const wordRect = currentWord.getBoundingClientRect();
+
+    // Calculate if we need to scroll
+    const wordBottom = wordRect.bottom - containerRect.top;
+    const containerHeight = containerRect.height;
+
+    // If the word is below the visible area, scroll it into view
+    if (wordBottom > containerHeight) {
+      currentWord.scrollIntoView({
+        behavior: "smooth",
+        block: "center",
+      });
+    }
+  }, [spokenCharacterCount]);
+
+  // Initial scroll to bottom when text changes
+  useEffect(() => {
+    if (scrollRef.current && !audioAlignment) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
-  }, [text]);
+  }, [text, audioAlignment]);
 
   useEffect(() => {
     setAnimate(true);
     const timeout = setTimeout(() => setAnimate(false), 600);
     return () => clearTimeout(timeout);
   }, [variantKey]);
+
+  // Find the index of the first unspoken word (for scroll ref)
+  const firstUnspokenWordIndex = highlightedSegments.findIndex(
+    (seg) => !seg.isWhitespace && !seg.isSpoken
+  );
 
   return (
     <Box
@@ -137,8 +174,6 @@ export default function TurnNarrationOverlay({
         right: 0,
         padding: "3rem",
         background: "linear-gradient(180deg, transparent 0%, var(--black-a11) 30%, var(--black-a12) 60%)",
-        minHeight: "50%",
-        maxHeight: "80%",
         display: "flex",
         flexDirection: "column",
         gap: "1rem",
@@ -148,10 +183,11 @@ export default function TurnNarrationOverlay({
       <Box
         ref={scrollRef}
         style={{
-          flex: 1,
           overflowY: "auto",
           overflowX: "hidden",
           paddingRight: "1rem",
+          // 4 lines at line-height 1.6 + size 7 (approx 2.5rem per line)
+          maxHeight: "calc(1.6 * 2.5rem * 4)",
           maskImage: "linear-gradient(to bottom, transparent 0%, black 5%, black 95%, transparent 100%)",
           WebkitMaskImage: "linear-gradient(to bottom, transparent 0%, black 5%, black 95%, transparent 100%)",
         }}
@@ -164,18 +200,23 @@ export default function TurnNarrationOverlay({
             display: "block",
           }}
         >
-          {highlightedSegments.map((segment, index) => (
-            <span
-              key={index}
-              style={{
-                color: segment.isSpoken ? "var(--gray-1)" : "var(--gray-9)",
-                textShadow: segment.isSpoken ? "0 0 20px rgba(255, 255, 255, 0.3)" : "none",
-                transition: "color 0.15s ease-out, text-shadow 0.15s ease-out",
-              }}
-            >
-              {segment.text}
-            </span>
-          ))}
+          {highlightedSegments.map((segment, index) => {
+            const isCurrentWord = index === firstUnspokenWordIndex;
+
+            return (
+              <span
+                key={index}
+                ref={isCurrentWord ? currentWordRef : undefined}
+                style={{
+                  color: segment.isSpoken ? "var(--gray-12)" : "var(--gray-11)",
+                  textShadow: segment.isSpoken ? "0 0 20px rgba(255, 255, 255, 0.3)" : "none",
+                  transition: "color 0.15s ease-out, text-shadow 0.15s ease-out",
+                }}
+              >
+                {segment.text}
+              </span>
+            );
+          })}
         </Text>
       </Box>
       <style jsx>{`
