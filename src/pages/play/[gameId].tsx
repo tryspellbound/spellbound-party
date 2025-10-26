@@ -1,7 +1,8 @@
 import { useRouter } from "next/router";
 import { ChangeEvent, FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import { Avatar, Badge, Box, Button, Card, Flex, Heading, Tabs, Text, TextField } from "@radix-ui/themes";
-import type { GameState, Player } from "@/types/game";
+import type { GameState, Player, Request } from "@/types/game";
+import RequestUI from "@/components/player/RequestUI";
 
 const POLL_INTERVAL = 2000;
 const MAX_AVATAR_BYTES = 300 * 1024;
@@ -20,6 +21,7 @@ export default function PlayerJoinPage() {
   const [error, setError] = useState<string | null>(null);
   const [avatarError, setAvatarError] = useState<string | null>(null);
   const [playerId, setPlayerId] = useState<string | null>(null);
+  const [activeRequests, setActiveRequests] = useState<(Request & { voteCounts?: Record<string, number> })[]>([]);
 
   const fetchGame = useCallback(async () => {
     if (!ready || typeof gameId !== "string") return;
@@ -37,6 +39,25 @@ export default function PlayerJoinPage() {
     }
   }, [gameId, ready]);
 
+  const fetchActiveRequests = useCallback(async () => {
+    if (!ready || typeof gameId !== "string" || !playerId || !game) return;
+    if (game.status !== "in-progress") return; // Only poll for requests when game is in progress
+
+    const turnNumber = game.turns.length; // Current turn we're waiting for
+    try {
+      const res = await fetch(`/api/games/${gameId}/requests/active?playerId=${playerId}&turnNumber=${turnNumber}`);
+      if (!res.ok) {
+        if (res.status === 404 || res.status === 403) return; // Game or player not found, ignore
+        throw new Error("Unable to fetch active requests");
+      }
+      const data = (await res.json()) as { requests: (Request & { voteCounts?: Record<string, number> })[] };
+      setActiveRequests(data.requests || []);
+    } catch (err) {
+      console.error("Error fetching active requests:", err);
+      // Don't show error to user, just log it
+    }
+  }, [gameId, ready, playerId, game]);
+
   useEffect(() => {
     fetchGame();
   }, [fetchGame]);
@@ -46,6 +67,18 @@ export default function PlayerJoinPage() {
     const interval = setInterval(fetchGame, POLL_INTERVAL);
     return () => clearInterval(interval);
   }, [fetchGame, ready, gameId]);
+
+  // Poll for active requests when joined and game is in progress
+  useEffect(() => {
+    if (!joined || !playerId || !game) return;
+    fetchActiveRequests();
+  }, [fetchActiveRequests, joined, playerId, game]);
+
+  useEffect(() => {
+    if (!joined || !playerId || !ready || typeof gameId !== "string") return;
+    const interval = setInterval(fetchActiveRequests, POLL_INTERVAL);
+    return () => clearInterval(interval);
+  }, [fetchActiveRequests, joined, playerId, ready, gameId]);
 
   const handleAvatarChange = (event: ChangeEvent<HTMLInputElement>) => {
     const input = event.target;
@@ -121,6 +154,31 @@ export default function PlayerJoinPage() {
     return game.players.find((p) => p.id === playerId) ?? null;
   }, [game, playerId]);
   const playerPreviewAvatar = currentPlayer?.avatar ?? avatarDataUrl;
+
+  // If there's an active request for this player, show full-screen request UI
+  if (joined && playerId && game && activeRequests.length > 0) {
+    return (
+      <Box
+        p={{ initial: "4", sm: "6" }}
+        style={{
+          minHeight: "100vh",
+          background:
+            "linear-gradient(135deg, rgba(47,38,132,0.8), rgba(4,3,22,0.95)) center / cover no-repeat, #050115",
+        }}
+      >
+        <RequestUI
+          request={activeRequests[0]}
+          gameId={game.id}
+          playerId={playerId}
+          turnNumber={game.turns.length}
+          onSubmit={() => {
+            // Refresh active requests after submitting
+            fetchActiveRequests();
+          }}
+        />
+      </Box>
+    );
+  }
 
   return (
     <Box

@@ -1,9 +1,10 @@
 import { useRouter } from "next/router";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Box, Flex } from "@radix-ui/themes";
-import type { GameState, GameTurn } from "@/types/game";
+import type { GameState, GameTurn, Request, RequestResponse } from "@/types/game";
 import PlayerListPanel from "@/components/tv/PlayerListPanel";
 import TurnShowcase from "@/components/tv/TurnShowcase";
+import RequestOverlay from "@/components/tv/RequestOverlay";
 
 const POLL_INTERVAL = 2000;
 const COOLDOWN_SECONDS = 5;
@@ -29,6 +30,9 @@ export default function TvGameView() {
     characterStartTimesSeconds: number[];
     characterEndTimesSeconds: number[];
   } | null>(null);
+  const [activeRequests, setActiveRequests] = useState<Request[]>([]);
+  const [requestResponses, setRequestResponses] = useState<Record<string, RequestResponse[]>>({});
+  const [showRequestOverlay, setShowRequestOverlay] = useState(false);
   const sourceRef = useRef<EventSource | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const mediaSourceRef = useRef<MediaSource | null>(null);
@@ -159,6 +163,9 @@ export default function TvGameView() {
         const audioPlaybackPromise = new Promise<void>((resolveAudio) => {
           audioPlaybackResolver = resolveAudio;
         });
+
+        // Track turn number for audio completion signal
+        const turnNumber = game.turns.length;
 
         const checkComplete = () => {
           if (streamComplete && audioPlaybackComplete) {
@@ -394,7 +401,7 @@ export default function TvGameView() {
           console.log(`[TV ENGINE ${turnId}] Audio streaming complete`);
 
           // End the stream once all chunks are appended
-          const tryEndStream = () => {
+          const tryEndStream = async () => {
             const mediaSource = mediaSourceRef.current;
             const sourceBuffer = sourceBufferRef.current;
 
@@ -411,11 +418,24 @@ export default function TvGameView() {
                 if (audioRef.current) {
                   const audio = audioRef.current;
 
-                  const onAudioEnded = () => {
+                  const onAudioEnded = async () => {
                     console.log(`[TV ENGINE ${turnId}] Audio playback finished`);
                     audioPlaybackComplete = true;
                     audio.removeEventListener('ended', onAudioEnded);
                     audio.removeEventListener('pause', onAudioEnded);
+
+                    // Signal to backend that audio playback is complete
+                    try {
+                      await fetch(`/api/games/${game.id}/audio/complete`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ turnNumber }),
+                      });
+                      console.log(`[TV ENGINE ${turnId}] Signaled audio completion to backend`);
+                    } catch (err) {
+                      console.error(`[TV ENGINE ${turnId}] Failed to signal audio completion:`, err);
+                    }
+
                     checkComplete();
                   };
 
@@ -426,14 +446,38 @@ export default function TvGameView() {
                   if (audio.paused && audio.currentTime === 0) {
                     console.log(`[TV ENGINE ${turnId}] Audio already stopped, marking as complete`);
                     audioPlaybackComplete = true;
+
+                    // Signal completion
+                    try {
+                      await fetch(`/api/games/${game.id}/audio/complete`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ turnNumber }),
+                      });
+                    } catch (err) {
+                      console.error(`[TV ENGINE ${turnId}] Failed to signal audio completion:`, err);
+                    }
+
                     checkComplete();
                   } else if (audio.ended) {
                     console.log(`[TV ENGINE ${turnId}] Audio already ended, marking as complete`);
-                    onAudioEnded();
+                    await onAudioEnded();
                   }
                 } else {
                   console.log(`[TV ENGINE ${turnId}] No audio element, marking playback as complete`);
                   audioPlaybackComplete = true;
+
+                  // Signal completion
+                  try {
+                    await fetch(`/api/games/${game.id}/audio/complete`, {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ turnNumber }),
+                    });
+                  } catch (err) {
+                    console.error(`[TV ENGINE ${turnId}] Failed to signal audio completion:`, err);
+                  }
+
                   checkComplete();
                 }
               } catch (err) {
@@ -448,12 +492,66 @@ export default function TvGameView() {
           tryEndStream();
         });
 
-        source.addEventListener("audio_error", (event) => {
+        source.addEventListener("audio_error", async (event) => {
           const payload = JSON.parse((event as MessageEvent<string>).data) as { message?: string };
           console.error(`[TV ENGINE ${turnId}] Audio error:`, payload.message);
           // If audio generation failed, mark playback as complete so we don't wait forever
           audioPlaybackComplete = true;
+
+          // Signal to backend that audio is "complete" (failed, but we're done)
+          try {
+            await fetch(`/api/games/${game.id}/audio/complete`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ turnNumber }),
+            });
+            console.log(`[TV ENGINE ${turnId}] Signaled audio completion (error case) to backend`);
+          } catch (err) {
+            console.error(`[TV ENGINE ${turnId}] Failed to signal audio completion:`, err);
+          }
+
           checkComplete();
+        });
+
+        source.addEventListener("requests_received", (event) => {
+          const payload = JSON.parse((event as MessageEvent<string>).data) as { requests: Request[] };
+          console.log(`[TV ENGINE ${turnId}] Requests received:`, payload.requests);
+          setActiveRequests(payload.requests);
+          setRequestResponses({});
+          setShowRequestOverlay(true);
+        });
+
+        source.addEventListener("request_response", (event) => {
+          const payload = JSON.parse((event as MessageEvent<string>).data) as {
+            requestId: string;
+            playerId: string;
+            response: string | null;
+          };
+          console.log(`[TV ENGINE ${turnId}] Request response received for ${payload.requestId} from ${payload.playerId}`);
+          setRequestResponses((prev) => {
+            const existing = prev[payload.requestId] || [];
+            return {
+              ...prev,
+              [payload.requestId]: [
+                ...existing,
+                {
+                  playerId: payload.playerId,
+                  response: payload.response,
+                  timestamp: Date.now(),
+                },
+              ],
+            };
+          });
+        });
+
+        source.addEventListener("requests_complete", (event) => {
+          const payload = JSON.parse((event as MessageEvent<string>).data) as {
+            responses: Record<string, RequestResponse[]>;
+          };
+          console.log(`[TV ENGINE ${turnId}] Requests complete:`, payload.responses);
+          setShowRequestOverlay(false);
+          setActiveRequests([]);
+          setRequestResponses({});
         });
 
         source.addEventListener("turn_complete", (event) => {
@@ -488,15 +586,27 @@ export default function TvGameView() {
           resolve();
         });
 
-        source.addEventListener("done", () => {
+        source.addEventListener("done", async () => {
           console.log(`[TV ENGINE ${turnId}] Done event received`);
           closeSource();
           streamComplete = true;
 
-          // If there was no audio generated, mark audio as complete
+          // If there was no audio generated, mark audio as complete and signal backend
           if (!audioRef.current || !mediaSourceRef.current) {
             console.log(`[TV ENGINE ${turnId}] No audio was generated, marking as complete`);
             audioPlaybackComplete = true;
+
+            // Signal to backend that audio is "complete" (no audio to play)
+            try {
+              await fetch(`/api/games/${game.id}/audio/complete`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ turnNumber }),
+              });
+              console.log(`[TV ENGINE ${turnId}] Signaled audio completion (no audio case) to backend`);
+            } catch (err) {
+              console.error(`[TV ENGINE ${turnId}] Failed to signal audio completion:`, err);
+            }
           }
 
           checkComplete();
@@ -648,6 +758,19 @@ export default function TvGameView() {
           audioAlignment={audioAlignment}
           audioElement={audioRef.current}
         />
+
+        {/* Request overlay */}
+        {showRequestOverlay && activeRequests.length > 0 && (
+          <RequestOverlay
+            requests={activeRequests}
+            responses={requestResponses}
+            players={game?.players ?? []}
+            onComplete={() => {
+              console.log("[TV] Request overlay completed");
+              setShowRequestOverlay(false);
+            }}
+          />
+        )}
       </Box>
     </Flex>
   );

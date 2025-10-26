@@ -98,7 +98,7 @@ export async function createGame(): Promise<GameState> {
 
 export async function appendTurnToGame(
   gameId: string,
-  payload: Pick<GameTurn, "continuation"> & Partial<Pick<GameTurn, "imagePrompt" | "image">>,
+  payload: Pick<GameTurn, "continuation"> & Partial<Pick<GameTurn, "imagePrompt" | "image" | "requests" | "responses">>,
 ): Promise<GameTurn> {
   const game = await getGame(gameId);
   if (!game) {
@@ -111,6 +111,8 @@ export async function appendTurnToGame(
     continuation: payload.continuation,
     imagePrompt: payload.imagePrompt,
     image: payload.image,
+    requests: payload.requests,
+    responses: payload.responses,
   };
 
   game.turns = [...game.turns, turn];

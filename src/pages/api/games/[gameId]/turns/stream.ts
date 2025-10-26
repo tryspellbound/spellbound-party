@@ -6,6 +6,13 @@ import { streamTurnText } from "@/services/textGeneration";
 import { streamTurnImage } from "@/services/imageGeneration";
 import { streamTurnAudio } from "@/services/audioGeneration";
 import { uploadTurnImage } from "@/lib/imagekit";
+import {
+  createRequestKeys,
+  waitForAllRequestResponses,
+  cleanupRequestKeys,
+  waitForAudioPlayback,
+} from "@/lib/requestStore";
+import type { Request, MultipleChoiceRequest, FreeTextRequest, YesNoRequest, Player } from "@/types/game";
 
 export const config = {
   api: {
@@ -52,6 +59,104 @@ const getTagSegment = (source: string, tag: string) => {
 };
 
 const stripCdata = (value: string) => value.replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, "$1");
+
+/**
+ * Map player reference (e.g., "player1", "player2") to actual player ID
+ * Returns undefined if reference is out of bounds
+ */
+const mapPlayerReference = (reference: string, players: Player[]): string | undefined => {
+  const match = reference.match(/^player(\d+)$/i);
+  if (!match) return undefined;
+
+  const index = parseInt(match[1], 10) - 1; // player1 = index 0
+  if (index < 0 || index >= players.length) return undefined;
+
+  return players[index].id;
+};
+
+/**
+ * Parse requests from the XML response
+ */
+const parseRequests = (raw: string, players: Player[]): Request[] => {
+  const requestsMatch = raw.match(/<requests[\s\S]*?>([\s\S]*?)<\/requests>/i);
+  if (!requestsMatch) return [];
+
+  const requestsContent = requestsMatch[1];
+  const requestMatches = requestsContent.matchAll(/<request\s+([^>]*)>([\s\S]*?)<\/request>/gi);
+
+  const requests: Request[] = [];
+
+  for (const requestMatch of requestMatches) {
+    const attributes = requestMatch[1];
+    const content = requestMatch[2];
+
+    // Parse attributes
+    const typeMatch = attributes.match(/type=["']([^"']+)["']/i);
+    const targetPlayerMatch = attributes.match(/target_player=["']([^"']+)["']/i);
+
+    if (!typeMatch) continue;
+
+    const type = typeMatch[1].toLowerCase();
+    const targetPlayerRef = targetPlayerMatch?.[1];
+
+    // Parse question
+    const questionMatch = content.match(/<question>([\s\S]*?)<\/question>/i);
+    if (!questionMatch) continue;
+
+    const question = stripCdata(questionMatch[1]).trim();
+
+    const requestId = randomUUID();
+
+    if (type === "multiple_choice") {
+      // Parse choices
+      const choiceMatches = content.matchAll(/<choice>([\s\S]*?)<\/choice>/gi);
+      const choices: string[] = [];
+
+      for (const choiceMatch of choiceMatches) {
+        const choice = stripCdata(choiceMatch[1]).trim();
+        if (choice) choices.push(choice);
+      }
+
+      if (choices.length > 0) {
+        const request: MultipleChoiceRequest = {
+          id: requestId,
+          type: "multiple_choice",
+          question,
+          choices,
+        };
+        requests.push(request);
+      }
+    } else if (type === "free_text") {
+      // Map target player
+      if (!targetPlayerRef) continue;
+      const playerId = mapPlayerReference(targetPlayerRef, players);
+      if (!playerId) continue; // Skip if player reference is invalid
+
+      const request: FreeTextRequest = {
+        id: requestId,
+        type: "free_text",
+        question,
+        targetPlayers: [playerId],
+      };
+      requests.push(request);
+    } else if (type === "yes_no") {
+      // Map target player
+      if (!targetPlayerRef) continue;
+      const playerId = mapPlayerReference(targetPlayerRef, players);
+      if (!playerId) continue; // Skip if player reference is invalid
+
+      const request: YesNoRequest = {
+        id: requestId,
+        type: "yes_no",
+        question,
+        targetPlayers: [playerId],
+      };
+      requests.push(request);
+    }
+  }
+
+  return requests;
+};
 
 const parseTurnPayload = (raw: string): TurnPayload => {
   const turnMatch = raw.match(/<turn[\s\S]*?>[\s\S]*?<\/turn>/i);
@@ -296,11 +401,64 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       }
     }
 
+    // Parse requests first to see if we need to wait for audio
+    const requests = parseRequests(rawBuffer, game.players);
+    let responses: Record<string, RequestResponse[]> | undefined;
+
+    // Wait for audio playback to complete before showing requests
+    if (requests.length > 0) {
+      console.log(`[STREAM ${requestId}] Found ${requests.length} request(s), waiting for audio playback to complete`);
+      const turnNumber = game.turns.length; // Current turn index
+
+      const audioCompleted = await waitForAudioPlayback(game.id, turnNumber);
+      if (!audioCompleted) {
+        console.warn(`[STREAM ${requestId}] Audio playback timed out, proceeding with requests anyway`);
+      }
+
+      // Now that audio is done, show requests
+      console.log(`[STREAM ${requestId}] Audio playback complete, sending requests to players`);
+      sendEvent("requests_received", { requests });
+
+      try {
+        // Create Redis keys for request response collection
+        await createRequestKeys(game.id, turnNumber, requests);
+
+        // Wait for all responses with callbacks for progress
+        responses = await waitForAllRequestResponses(
+          game.id,
+          turnNumber,
+          requests,
+          game.players.map((p) => p.id),
+          (requestId, response) => {
+            console.log(`[STREAM ${requestId}] Received response for request ${requestId} from player ${response.playerId}`);
+            sendEvent("request_response", {
+              requestId,
+              playerId: response.playerId,
+              response: response.response,
+            });
+          }
+        );
+
+        console.log(`[STREAM ${requestId}] All requests completed`);
+        sendEvent("requests_complete", { responses });
+
+        // Clean up Redis keys
+        await cleanupRequestKeys(game.id, turnNumber);
+      } catch (error) {
+        console.error(`[STREAM ${requestId}] Error handling requests:`, error);
+        sendEvent("request_error", {
+          message: error instanceof Error ? error.message : "Failed to process requests",
+        });
+      }
+    }
+
     console.log(`[STREAM ${requestId}] Saving turn to game state`);
     const turn = await appendTurnToGame(game.id, {
       continuation: parsedTurn.continuation,
       imagePrompt: parsedTurn.imagePrompt,
       image: imageUrl,
+      requests: requests.length > 0 ? requests : undefined,
+      responses,
     });
 
     console.log(`[STREAM ${requestId}] Turn saved with ID: ${turn.id}`);
