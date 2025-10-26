@@ -30,7 +30,7 @@ export default function TurnNarrationOverlay({
       return 0;
     }
 
-    const LOOKAHEAD_SECONDS = 0.05; // 50ms lookahead
+    const LOOKAHEAD_SECONDS = 0.02; // 50ms lookahead
     const adjustedPlaybackTime = audioPlaybackTime + LOOKAHEAD_SECONDS;
 
     // Find the last character whose end time is less than current playback time
@@ -47,10 +47,27 @@ export default function TurnNarrationOverlay({
 
   // Parse text into word segments (words + attached punctuation)
   // A word segment is any sequence of non-whitespace characters
+  // Also identify and mark bracketed sections for hiding
   const wordSegments = useMemo(() => {
+    // First, identify all bracket regions [...]
+    const bracketRegions: { start: number; end: number }[] = [];
+    const bracketRegex = /\[([^\]]*)\]/g;
+    let bracketMatch;
+
+    while ((bracketMatch = bracketRegex.exec(text)) !== null) {
+      bracketRegions.push({
+        start: bracketMatch.index,
+        end: bracketMatch.index + bracketMatch[0].length,
+      });
+    }
+
+    // Helper to check if a position is inside brackets
+    const isInBrackets = (index: number) => {
+      return bracketRegions.some((region) => index >= region.start && index < region.end);
+    };
+
     const segments: { text: string; startIndex: number; endIndex: number }[] = [];
 
-    // Match sequences of non-whitespace characters (words + punctuation)
     // Match sequences of non-whitespace characters, but split on em-dash
     const wordRegex = /[^\s—]+/g;
     let match;
@@ -62,8 +79,15 @@ export default function TurnNarrationOverlay({
         endIndex: match.index + match[0].length,
       });
     }
+
     // Also capture whitespace between words
-    const allSegments: { text: string; startIndex: number; endIndex: number; isWhitespace: boolean }[] = [];
+    const allSegments: {
+      text: string;
+      startIndex: number;
+      endIndex: number;
+      isWhitespace: boolean;
+      inBrackets: boolean;
+    }[] = [];
     let lastEnd = 0;
 
     for (const segment of segments) {
@@ -74,10 +98,15 @@ export default function TurnNarrationOverlay({
           startIndex: lastEnd,
           endIndex: segment.startIndex,
           isWhitespace: true,
+          inBrackets: isInBrackets(lastEnd),
         });
       }
       // Add the word segment
-      allSegments.push({ ...segment, isWhitespace: false });
+      allSegments.push({
+        ...segment,
+        isWhitespace: false,
+        inBrackets: isInBrackets(segment.startIndex),
+      });
       lastEnd = segment.endIndex;
     }
 
@@ -88,6 +117,7 @@ export default function TurnNarrationOverlay({
         startIndex: lastEnd,
         endIndex: text.length,
         isWhitespace: true,
+        inBrackets: isInBrackets(lastEnd),
       });
     }
 
@@ -202,6 +232,15 @@ export default function TurnNarrationOverlay({
         >
           {highlightedSegments.map((segment, index) => {
             const isCurrentWord = index === firstUnspokenWordIndex;
+
+            // Hide bracketed content
+            if (segment.inBrackets) {
+              return (
+                <span key={index} style={{ display: "none" }}>
+                  {segment.text}
+                </span>
+              );
+            }
 
             return (
               <span
