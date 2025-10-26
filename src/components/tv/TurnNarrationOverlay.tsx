@@ -1,4 +1,4 @@
-import { Box, Container, Text } from "@radix-ui/themes";
+import { Box, Text } from "@radix-ui/themes";
 import { useEffect, useRef, useState, useMemo } from "react";
 
 type TurnNarrationOverlayProps = {
@@ -198,19 +198,15 @@ export default function TurnNarrationOverlay({
   );
 
   return (
-    <Container size={"2"} className="max-w-xl">
     <Box
       className={`turn-overlay ${animate ? "turn-overlay--animate" : ""}`}
       style={{
-        position: "absolute",
-        bottom: 0,
-        left: 0,
-        right: 0,
-        padding: "3rem",
+        padding: "2rem",
         background: "linear-gradient(180deg, rgba(0, 0, 0, 0) 0%, rgba(0, 0, 0, 0.5) 30%, rgba(0, 0, 0, 0.5) 60%)",
         display: "flex",
         flexDirection: "column",
         gap: "1rem",
+        borderRadius: "16px",
       }}
     >
       <Box
@@ -317,7 +313,6 @@ export default function TurnNarrationOverlay({
         }
       `}</style>
     </Box>
-    </Container>
   );
 }
 

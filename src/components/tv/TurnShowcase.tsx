@@ -1,5 +1,6 @@
-import { Box, Text } from "@radix-ui/themes";
+import { Box, Text, Flex } from "@radix-ui/themes";
 import TurnNarrationOverlay from "./TurnNarrationOverlay";
+import AvatarSpeaker from "./AvatarSpeaker";
 
 type TurnShowcaseProps = {
   imageSrc?: string | null;
@@ -12,9 +13,10 @@ type TurnShowcaseProps = {
     characterStartTimesSeconds: number[];
     characterEndTimesSeconds: number[];
   } | null;
+  audioElement?: HTMLAudioElement | null;
 };
 
-export default function TurnShowcase({ imageSrc, narration, prompt, variantKey, audioPlaybackTime = 0, audioAlignment = null }: TurnShowcaseProps) {
+export default function TurnShowcase({ imageSrc, narration, prompt, variantKey, audioPlaybackTime = 0, audioAlignment = null, audioElement = null }: TurnShowcaseProps) {
   return (
     <Box
       style={{
@@ -51,13 +53,34 @@ export default function TurnShowcase({ imageSrc, narration, prompt, variantKey, 
           </Text>
         </Box>
       )}
-      <TurnNarrationOverlay
-        text={narration}
-        prompt={prompt}
-        variantKey={variantKey}
-        audioPlaybackTime={audioPlaybackTime}
-        audioAlignment={audioAlignment}
-      />
+
+      {/* Avatar and Narration side by side */}
+      <Flex
+        style={{
+          position: "absolute",
+          bottom: "2rem",
+          left: "2rem",
+          right: "2rem",
+          alignItems: "flex-end",
+          gap: "2rem",
+        }}
+      >
+        {/* Avatar on the left */}
+        <Box style={{ flexShrink: 0 }}>
+          <AvatarSpeaker audioElement={audioElement} />
+        </Box>
+
+        {/* Narration on the right */}
+        <Box style={{ flex: 1 }}>
+          <TurnNarrationOverlay
+            text={narration}
+            prompt={prompt}
+            variantKey={variantKey}
+            audioPlaybackTime={audioPlaybackTime}
+            audioAlignment={audioAlignment}
+          />
+        </Box>
+      </Flex>
     </Box>
   );
 }

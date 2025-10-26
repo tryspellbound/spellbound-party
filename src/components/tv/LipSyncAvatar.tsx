@@ -2,8 +2,6 @@ import {
   useEffect,
   useMemo,
   useRef,
-  useState,
-  useCallback,
   forwardRef,
   useImperativeHandle,
   type JSX,
@@ -14,6 +12,7 @@ import { Lipsync, VISEMES } from "wawa-lipsync";
 import { SkeletonUtils } from "three-stdlib";
 import type { GLTF } from "three-stdlib";
 import * as THREE from "three";
+import { useEyesFollowMouse } from "./eyeMovement";
 
 type ActionName =
   | "allGrip_L"
@@ -73,16 +72,20 @@ export const LipSyncAvatar = forwardRef<
   LipSyncAvatarProps
 >(({ audioElement, ...props }, ref) => {
   const group = useRef<THREE.Group>(null);
-  const { scene, materials, animations } = useGLTF(
-    "/avatar.glb"
-  ) as unknown as GLTFResult;
+  const {
+    nodes: modelNodes,
+    scene,
+    materials,
+    animations,
+  } = useGLTF("/avatar.glb") as unknown as GLTFResult;
   const clone = useMemo(() => SkeletonUtils.clone(scene), [scene]);
   const { nodes } = useGraph(clone) as unknown as {
     nodes: GLTFResult["nodes"];
   };
-
+  console.log(`[LipSyncAvatar] Animations:`, animations);
   // Animation setup
   const { actions, mixer } = useAnimations(animations, group);
+  useEyesFollowMouse(modelNodes as any, actions, true);
 
   // Default to idle_eyes animation if available, otherwise use the first animation
   const idleAnimation: ActionName = useMemo(() => {
@@ -91,28 +94,18 @@ export const LipSyncAvatar = forwardRef<
     return (animations[0]?.name as ActionName) || "idle_eyes";
   }, [animations]);
 
-  const [currentAnimation, setCurrentAnimation] =
-    useState<ActionName>(idleAnimation);
-
-  // Helper to play idle animation
-  const playIdle = useCallback(() => {
-    const action = actions[idleAnimation];
-    if (!action) {
-      console.warn(`Animation "${idleAnimation}" not found`);
-      return;
+  // Play idle animation on mount
+  useEffect(() => {
+    const idle = actions[idleAnimation];
+    if (idle) {
+      console.log("[LipSyncAvatar] Starting idle animation");
+      idle
+        .reset()
+        .fadeIn(0.5)
+        .setEffectiveTimeScale(0.2)
+        .setLoop(THREE.LoopRepeat, Infinity)
+        .play();
     }
-
-    // Check if any other actions are currently playing
-    const hasActiveActions = Object.values(actions).some(
-      (a) => a?.isRunning() && a !== action
-    );
-
-    const fadeDuration = hasActiveActions ? 0.5 : 0;
-    action
-      .reset()
-      .fadeIn(fadeDuration)
-      .setLoop(THREE.LoopRepeat, Infinity)
-      .play();
   }, [actions, idleAnimation]);
 
   // Expose playAnimation method via ref
@@ -120,39 +113,46 @@ export const LipSyncAvatar = forwardRef<
     ref,
     () => ({
       playAnimation: (animationName: ActionName) => {
+        console.log(`[LipSyncAvatar] Playing animation:`, animationName);
         const action = actions[animationName];
         if (!action) {
-          console.warn(`Animation "${animationName}" not found`);
+          console.warn(
+            `[LipSyncAvatar] Animation "${animationName}" not found`
+          );
           return;
         }
 
-        // Stop current animation
-        const currentAction = actions[currentAnimation];
-        if (currentAction) {
-          currentAction.fadeOut(0.3);
+        const idle = actions[idleAnimation];
+
+        // Stop idle animation
+        if (idle) {
+          console.log("[LipSyncAvatar] Stopping idle animation");
+          idle.fadeOut(0.3);
         }
 
-        // Play the requested an  imation once
+        // Play the requested animation once
         action.reset().fadeIn(0.3).setLoop(THREE.LoopOnce, 1).play();
-        setCurrentAnimation(animationName);
 
         // Set up listener to return to idle when animation finishes
         const onFinished = () => {
+          console.log(`[LipSyncAvatar] Animation finished, returning to idle`);
           mixer.removeEventListener("finished", onFinished);
-          setCurrentAnimation(idleAnimation);
+
+          // Return to idle
+          if (idle) {
+            idle
+              .reset()
+              .fadeIn(0.5)
+              .setEffectiveTimeScale(0.2)
+              .setLoop(THREE.LoopRepeat, Infinity)
+              .play();
+          }
         };
         mixer.addEventListener("finished", onFinished);
       },
     }),
-    [actions, currentAnimation, idleAnimation, mixer]
+    [actions, idleAnimation, mixer]
   );
-
-  // Play idle animation on mount and when returning to idle
-  useEffect(() => {
-    if (currentAnimation === idleAnimation) {
-      playIdle();
-    }
-  }, [currentAnimation, idleAnimation, playIdle]);
 
   // Create a single Lipsync instance
   const lipsyncManager = useMemo(() => new Lipsync(), []);

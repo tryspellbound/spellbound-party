@@ -4,7 +4,6 @@ import { Box, Flex } from "@radix-ui/themes";
 import type { GameState, GameTurn } from "@/types/game";
 import PlayerListPanel from "@/components/tv/PlayerListPanel";
 import TurnShowcase from "@/components/tv/TurnShowcase";
-import AvatarSpeaker from "@/components/tv/AvatarSpeaker";
 
 const POLL_INTERVAL = 2000;
 const COOLDOWN_SECONDS = 5;
@@ -647,10 +646,8 @@ export default function TvGameView() {
           variantKey={narrationKey}
           audioPlaybackTime={audioPlaybackTime}
           audioAlignment={audioAlignment}
+          audioElement={audioRef.current}
         />
-
-        {/* Avatar speaker in bottom right */}
-        <AvatarSpeaker audioElement={audioRef.current} />
       </Box>
     </Flex>
   );
