@@ -10,7 +10,6 @@ import {
   createRequestKeys,
   waitForAllRequestResponses,
   cleanupRequestKeys,
-  waitForAudioPlayback,
 } from "@/lib/requestStore";
 import type { Request, MultipleChoiceRequest, FreeTextRequest, YesNoRequest, Player, RequestResponse } from "@/types/game";
 
@@ -401,23 +400,17 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       }
     }
 
-    // Parse requests first to see if we need to wait for audio
+    // Parse and handle requests
     const requests = parseRequests(rawBuffer, game.players);
     let responses: Record<string, RequestResponse[]> | undefined;
 
-    // Wait for audio playback to complete before showing requests
     if (requests.length > 0) {
-      console.log(`[STREAM ${requestId}] Found ${requests.length} request(s), waiting for audio playback to complete`);
+      console.log(`[STREAM ${requestId}] Found ${requests.length} request(s)`);
       const turnNumber = game.turns.length; // Current turn index
 
-      const audioCompleted = await waitForAudioPlayback(game.id, turnNumber);
-      if (!audioCompleted) {
-        console.warn(`[STREAM ${requestId}] Audio playback timed out, proceeding with requests anyway`);
-      }
-
-      // Now that audio is done, show requests
-      console.log(`[STREAM ${requestId}] Audio playback complete, sending requests to players`);
-      sendEvent("requests_received", { requests });
+      // Send requests immediately - TV will wait for audio, phones show immediately
+      console.log(`[STREAM ${requestId}] Sending requests to players`);
+      sendEvent("requests_received", { requests, turnNumber });
 
       try {
         // Create Redis keys for request response collection

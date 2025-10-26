@@ -31,6 +31,7 @@ export default function TvGameView() {
     characterEndTimesSeconds: number[];
   } | null>(null);
   const [activeRequests, setActiveRequests] = useState<Request[]>([]);
+  const [pendingRequests, setPendingRequests] = useState<Request[] | null>(null);
   const [requestResponses, setRequestResponses] = useState<Record<string, RequestResponse[]>>({});
   const [showRequestOverlay, setShowRequestOverlay] = useState(false);
   const sourceRef = useRef<EventSource | null>(null);
@@ -163,9 +164,6 @@ export default function TvGameView() {
         const audioPlaybackPromise = new Promise<void>((resolveAudio) => {
           audioPlaybackResolver = resolveAudio;
         });
-
-        // Track turn number for audio completion signal
-        const turnNumber = game.turns.length;
 
         const checkComplete = () => {
           if (streamComplete && audioPlaybackComplete) {
@@ -424,17 +422,15 @@ export default function TvGameView() {
                     audio.removeEventListener('ended', onAudioEnded);
                     audio.removeEventListener('pause', onAudioEnded);
 
-                    // Signal to backend that audio playback is complete
-                    try {
-                      await fetch(`/api/games/${game.id}/audio/complete`, {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ turnNumber }),
-                      });
-                      console.log(`[TV ENGINE ${turnId}] Signaled audio completion to backend`);
-                    } catch (err) {
-                      console.error(`[TV ENGINE ${turnId}] Failed to signal audio completion:`, err);
-                    }
+                    // Activate pending requests now that audio is done
+                    setPendingRequests((pending) => {
+                      if (pending && pending.length > 0) {
+                        console.log(`[TV ENGINE ${turnId}] Activating ${pending.length} pending requests`);
+                        setActiveRequests(pending);
+                        setShowRequestOverlay(true);
+                      }
+                      return null;
+                    });
 
                     checkComplete();
                   };
@@ -447,16 +443,14 @@ export default function TvGameView() {
                     console.log(`[TV ENGINE ${turnId}] Audio already stopped, marking as complete`);
                     audioPlaybackComplete = true;
 
-                    // Signal completion
-                    try {
-                      await fetch(`/api/games/${game.id}/audio/complete`, {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ turnNumber }),
-                      });
-                    } catch (err) {
-                      console.error(`[TV ENGINE ${turnId}] Failed to signal audio completion:`, err);
-                    }
+                    // Activate pending requests
+                    setPendingRequests((pending) => {
+                      if (pending && pending.length > 0) {
+                        setActiveRequests(pending);
+                        setShowRequestOverlay(true);
+                      }
+                      return null;
+                    });
 
                     checkComplete();
                   } else if (audio.ended) {
@@ -467,16 +461,14 @@ export default function TvGameView() {
                   console.log(`[TV ENGINE ${turnId}] No audio element, marking playback as complete`);
                   audioPlaybackComplete = true;
 
-                  // Signal completion
-                  try {
-                    await fetch(`/api/games/${game.id}/audio/complete`, {
-                      method: 'POST',
-                      headers: { 'Content-Type': 'application/json' },
-                      body: JSON.stringify({ turnNumber }),
-                    });
-                  } catch (err) {
-                    console.error(`[TV ENGINE ${turnId}] Failed to signal audio completion:`, err);
-                  }
+                  // Activate pending requests
+                  setPendingRequests((pending) => {
+                    if (pending && pending.length > 0) {
+                      setActiveRequests(pending);
+                      setShowRequestOverlay(true);
+                    }
+                    return null;
+                  });
 
                   checkComplete();
                 }
@@ -498,27 +490,26 @@ export default function TvGameView() {
           // If audio generation failed, mark playback as complete so we don't wait forever
           audioPlaybackComplete = true;
 
-          // Signal to backend that audio is "complete" (failed, but we're done)
-          try {
-            await fetch(`/api/games/${game.id}/audio/complete`, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ turnNumber }),
-            });
-            console.log(`[TV ENGINE ${turnId}] Signaled audio completion (error case) to backend`);
-          } catch (err) {
-            console.error(`[TV ENGINE ${turnId}] Failed to signal audio completion:`, err);
-          }
+          // Activate pending requests (no audio to wait for)
+          setPendingRequests((pending) => {
+            if (pending && pending.length > 0) {
+              setActiveRequests(pending);
+              setShowRequestOverlay(true);
+            }
+            return null;
+          });
 
           checkComplete();
         });
 
         source.addEventListener("requests_received", (event) => {
-          const payload = JSON.parse((event as MessageEvent<string>).data) as { requests: Request[] };
+          const payload = JSON.parse((event as MessageEvent<string>).data) as { requests: Request[]; turnNumber?: number };
           console.log(`[TV ENGINE ${turnId}] Requests received:`, payload.requests);
-          setActiveRequests(payload.requests);
+
+          // Store requests but don't show overlay yet - wait for audio to finish
+          console.log(`[TV ENGINE ${turnId}] Storing requests, will show after audio completes`);
+          setPendingRequests(payload.requests);
           setRequestResponses({});
-          setShowRequestOverlay(true);
         });
 
         source.addEventListener("request_response", (event) => {
@@ -591,22 +582,19 @@ export default function TvGameView() {
           closeSource();
           streamComplete = true;
 
-          // If there was no audio generated, mark audio as complete and signal backend
+          // If there was no audio generated, mark audio as complete
           if (!audioRef.current || !mediaSourceRef.current) {
             console.log(`[TV ENGINE ${turnId}] No audio was generated, marking as complete`);
             audioPlaybackComplete = true;
 
-            // Signal to backend that audio is "complete" (no audio to play)
-            try {
-              await fetch(`/api/games/${game.id}/audio/complete`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ turnNumber }),
-              });
-              console.log(`[TV ENGINE ${turnId}] Signaled audio completion (no audio case) to backend`);
-            } catch (err) {
-              console.error(`[TV ENGINE ${turnId}] Failed to signal audio completion:`, err);
-            }
+            // Activate pending requests (no audio to wait for)
+            setPendingRequests((pending) => {
+              if (pending && pending.length > 0) {
+                setActiveRequests(pending);
+                setShowRequestOverlay(true);
+              }
+              return null;
+            });
           }
 
           checkComplete();

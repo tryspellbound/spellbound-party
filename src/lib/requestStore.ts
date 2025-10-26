@@ -1,8 +1,7 @@
 import { getRedisClient } from "./redis";
 import type { Request, RequestResponse } from "@/types/game";
 
-const REQUEST_TTL_SECONDS = 35; // 5s buffer beyond 30s timeout
-const REQUEST_TIMEOUT_MS = 30000; // 30 seconds
+const REQUEST_TTL_SECONDS = 600; // 10 minutes TTL for request keys
 
 /**
  * Build Redis key for a request's responses
@@ -90,8 +89,8 @@ export async function getRequestResponses(
 }
 
 /**
- * Wait for all responses to a request with timeout
- * Returns collected responses (may be partial if timeout)
+ * Wait for all responses to a request (no timeout - waits indefinitely)
+ * Returns collected responses when all players have responded
  */
 async function waitForRequestResponse(
   gameId: string,
@@ -102,11 +101,10 @@ async function waitForRequestResponse(
 ): Promise<RequestResponse[]> {
   const client = await getRedisClient();
   const requestKey = buildRequestKey(gameId, turnNumber, request.id);
-  const startTime = Date.now();
 
   const responses = new Map<string, RequestResponse>();
 
-  while (Date.now() - startTime < REQUEST_TIMEOUT_MS) {
+  while (true) {
     // Check for new responses
     const hash = await client.HGETALL(requestKey);
 
@@ -132,24 +130,6 @@ async function waitForRequestResponse(
     // Wait a bit before checking again
     await new Promise((resolve) => setTimeout(resolve, 200));
   }
-
-  // Timeout - return what we have
-  console.log(
-    `[REQUEST ${request.id}] Timeout reached. Collected ${responses.size}/${expectedPlayerIds.length} responses`
-  );
-
-  // Add null responses for missing players
-  for (const playerId of expectedPlayerIds) {
-    if (!responses.has(playerId)) {
-      responses.set(playerId, {
-        playerId,
-        response: null,
-        timestamp: Date.now(),
-      });
-    }
-  }
-
-  return Array.from(responses.values());
 }
 
 /**
