@@ -24,6 +24,31 @@ const parseTag = (source: string, tag: string) => {
   return match[1].replace(/<!\[CDATA\[(.*?)\]\]>/g, "$1").trim();
 };
 
+const getTagSegment = (source: string, tag: string) => {
+  const lower = source.toLowerCase();
+  const open = lower.indexOf(`<${tag.toLowerCase()}`);
+  if (open === -1) {
+    return null;
+  }
+  const openEnd = source.indexOf(">", open);
+  if (openEnd === -1) {
+    return null;
+  }
+  const close = lower.indexOf(`</${tag.toLowerCase()}>`, openEnd + 1);
+  if (close === -1) {
+    return {
+      content: source.slice(openEnd + 1),
+      closed: false,
+    };
+  }
+  return {
+    content: source.slice(openEnd + 1, close),
+    closed: true,
+  };
+};
+
+const stripCdata = (value: string) => value.replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, "$1");
+
 const parseTurnPayload = (raw: string): TurnPayload => {
   const turnMatch = raw.match(/<turn[\s\S]*?>[\s\S]*?<\/turn>/i);
   if (!turnMatch) {
@@ -42,8 +67,6 @@ const parseTurnPayload = (raw: string): TurnPayload => {
     imagePrompt: imagePrompt?.trim() || undefined,
   };
 };
-
-const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== "GET") {
@@ -92,27 +115,20 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       "Generate the very next turn for Spellbound Party. Respond only with the XML schema described in the system prompt.";
 
     sendEvent("turn_status", { status: "narration" });
-    let latestText = "";
-    const rawTurn = await streamTurnText({
-      systemPrompt,
-      userPrompt,
-      signal: abortController.signal,
-      onChunk: (_chunk, aggregated) => {
-        latestText = aggregated;
-        sendEvent("continuation_chunk", { text: aggregated });
-      },
-    });
-
-    const parsedTurn = parseTurnPayload(rawTurn || latestText);
-    sendEvent("continuation_complete", { text: parsedTurn.continuation });
-
+    let rawBuffer = "";
+    let streamingContinuation = "";
+    let imagePrompt: string | undefined;
+    let imageTask: Promise<string> | null = null;
     let finalImage: string | undefined;
-    if (parsedTurn.imagePrompt) {
-      sendEvent("image_prompt", { prompt: parsedTurn.imagePrompt });
-      await delay(100);
+
+    const startImageGeneration = (prompt: string) => {
+      if (imageTask) {
+        return;
+      }
+      sendEvent("image_prompt", { prompt });
       sendEvent("turn_status", { status: "image" });
-      await streamTurnImage({
-        prompt: parsedTurn.imagePrompt,
+      imageTask = streamTurnImage({
+        prompt,
         signal: abortController.signal,
         onEvent: (event) => {
           if (event.type === "image_generation.partial_image") {
@@ -126,7 +142,51 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
             sendEvent("image_complete", { image: finalImage, usage: event.usage });
           }
         },
+      }).catch((err) => {
+        sendEvent("turn_error", { message: err instanceof Error ? err.message : "Image generation failed" });
+        throw err;
       });
+    };
+
+    await streamTurnText({
+      systemPrompt,
+      userPrompt,
+      signal: abortController.signal,
+      onChunk: (chunk) => {
+        rawBuffer += chunk;
+        if (!imagePrompt) {
+          const promptSegment = getTagSegment(rawBuffer, "image_prompt");
+          if (promptSegment?.closed) {
+            imagePrompt = stripCdata(promptSegment.content).trim();
+            if (imagePrompt) {
+              startImageGeneration(imagePrompt);
+            }
+          }
+        }
+        const continuationSegment = getTagSegment(rawBuffer, "continuation");
+        if (continuationSegment) {
+          const cleanText = stripCdata(continuationSegment.content);
+          if (cleanText !== streamingContinuation) {
+            streamingContinuation = cleanText;
+            sendEvent("continuation_chunk", { text: streamingContinuation });
+          }
+        }
+      },
+    });
+
+    const parsedTurn = parseTurnPayload(rawBuffer);
+    sendEvent("continuation_complete", { text: parsedTurn.continuation });
+
+    if (parsedTurn.imagePrompt && !imagePrompt) {
+      imagePrompt = parsedTurn.imagePrompt;
+      startImageGeneration(parsedTurn.imagePrompt);
+    }
+
+    if (imageTask) {
+      const resolved = await imageTask;
+      if (!finalImage && resolved) {
+        finalImage = `data:image/png;base64,${resolved}`;
+      }
     }
 
     const turn = await appendTurnToGame(game.id, {
@@ -147,4 +207,3 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     res.end();
   }
 }
-

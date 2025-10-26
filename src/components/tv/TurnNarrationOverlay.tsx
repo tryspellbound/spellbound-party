@@ -57,7 +57,6 @@ export default function TurnNarrationOverlay({ text, prompt, variantKey }: TurnN
           maxHeight: "calc(40vh - 3rem)",
           overflowY: "auto",
           paddingRight: "0.5rem",
-          color: "var(--gray-1, #fdfdfd)",
         }}
       >
         <Text size="5" style={{ whiteSpace: "pre-wrap", lineHeight: 1.4 }}>
