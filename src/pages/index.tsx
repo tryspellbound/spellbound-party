@@ -1,78 +1,210 @@
-import Image from "next/image";
-import { Geist, Geist_Mono } from "next/font/google";
+import { useRouter } from "next/router";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { Avatar, Box, Button, Card, Flex, Grid, Heading, Inset, Separator, Text, Badge } from "@radix-ui/themes";
+import { RocketIcon } from "@radix-ui/react-icons";
+import QRCode from "react-qr-code";
+import type { GameState } from "@/types/game";
 
-const geistSans = Geist({
-  variable: "--font-geist-sans",
-  subsets: ["latin"],
-});
+type GameResponse = {
+  game: GameState;
+  joinUrl: string;
+};
 
-const geistMono = Geist_Mono({
-  variable: "--font-geist-mono",
-  subsets: ["latin"],
-});
+const POLL_INTERVAL = 2000;
 
-export default function Home() {
+export default function TvLobby() {
+  const router = useRouter();
+  const [game, setGame] = useState<GameState | null>(null);
+  const [joinUrl, setJoinUrl] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [startLoading, setStartLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const qrValue = useMemo(() => {
+    if (joinUrl) return joinUrl;
+    if (!game) return "";
+    if (typeof window !== "undefined") {
+      return `${window.location.origin}/play/${game.id}`;
+    }
+    return `/play/${game.id}`;
+  }, [game, joinUrl]);
+
+  const fetchGame = useCallback(
+    async (gameId: string) => {
+      try {
+        const res = await fetch(`/api/games/${gameId}`);
+        if (!res.ok) {
+          throw new Error("Failed to load game");
+        }
+        const data = (await res.json()) as { game: GameState };
+        setGame(data.game);
+      } catch (err) {
+        console.error(err);
+      }
+    },
+    [setGame],
+  );
+
+  useEffect(() => {
+    if (!game?.id) return;
+    const interval = setInterval(() => fetchGame(game.id), POLL_INTERVAL);
+    return () => clearInterval(interval);
+  }, [game?.id, fetchGame]);
+
+  const handleCreateGame = async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/games", { method: "POST" });
+      if (!res.ok) {
+        throw new Error("Unable to create game");
+      }
+      const data = (await res.json()) as GameResponse;
+      setGame(data.game);
+      setJoinUrl(data.joinUrl);
+    } catch (err) {
+      console.error(err);
+      setError(err instanceof Error ? err.message : "Unexpected error");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleStartGame = async () => {
+    if (!game) return;
+    setStartLoading(true);
+    try {
+      await fetch(`/api/games/${game.id}/start`, { method: "POST" });
+      router.push(`/tv/${game.id}`);
+    } catch (err) {
+      console.error(err);
+      setError("Unable to start game");
+    } finally {
+      setStartLoading(false);
+    }
+  };
+
   return (
-    <div
-      className={`${geistSans.className} ${geistMono.className} flex min-h-screen items-center justify-center bg-zinc-50 font-sans dark:bg-black`}
+    <Box
+      p={{ initial: "5", sm: "7" }}
+      style={{
+        minHeight: "100vh",
+        background:
+          "radial-gradient(circle at top, rgba(80,72,225,0.25), transparent 55%), #040208",
+      }}
     >
-      <main className="flex min-h-screen w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the index.tsx file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=default-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=default-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
-          </p>
-        </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=default-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
+      <Flex direction="column" gap="4" align="center">
+        <Heading size="8" weight="bold">
+          Spellbound Party
+        </Heading>
+        <Text color="gray" size="4">
+          Spin up a lobby, share the QR code, and let friends jump in.
+        </Text>
+        {!game ? (
+          <Card size="5" variant="surface" style={{ maxWidth: 560, marginTop: "3rem" }}>
+            <Flex direction="column" gap="5" align="center">
+              <Text size="6" weight="bold">
+                Ready to Cast a Spell?
+              </Text>
+              <Text align="center" size="3" color="gray">
+                Create a lobby from the TV to start gathering players. Once created, you will get a
+                QR code and a join link to share.
+              </Text>
+              <Button size="4" onClick={handleCreateGame} loading={loading}>
+                Create Game
+              </Button>
+              {error && (
+                <Text color="red" size="3">
+                  {error}
+                </Text>
+              )}
+            </Flex>
+          </Card>
+        ) : (
+          <Grid
+            gap="5"
+            columns={{ initial: "1", sm: "2" }}
+            style={{ width: "100%", maxWidth: 960 }}
           >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={16}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs/pages/getting-started?utm_source=create-next-app&utm_medium=default-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
-        </div>
-      </main>
-    </div>
+            <Card variant="surface">
+              <Flex direction="column" gap="4">
+                <Flex justify="between" align="center">
+                  <Box>
+                    <Text size="2" color="gray">
+                      Lobby Code
+                    </Text>
+                    <Heading size="7" mt="1">
+                      {game.id}
+                    </Heading>
+                  </Box>
+                  <Badge color={game.status === "lobby" ? "lime" : "plum"} radius="full">
+                    {game.status === "lobby" ? "Waiting" : "In progress"}
+                  </Badge>
+                </Flex>
+                <Separator size="4" />
+                <Flex direction="column" gap="3">
+                  <Text color="gray" size="2">
+                    Players
+                  </Text>
+                  <Flex direction="column" gap="2">
+                    {game.players.length === 0 ? (
+                      <Text color="gray">No players yet — share the QR code!</Text>
+                    ) : (
+                      game.players.map((player) => (
+                        <Card key={player.id} variant="classic">
+                          <Flex justify="between" align="center" gap="3">
+                            <Flex align="center" gap="3">
+                              <Avatar
+                                size="3"
+                                radius="full"
+                                src={player.avatar}
+                                fallback={(player.name[0] ?? "?").toUpperCase()}
+                              />
+                              <Box>
+                                <Text weight="bold">{player.name}</Text>
+                                <Text color="gray" size="2">
+                                  Joined {new Date(player.joinedAt).toLocaleTimeString()}
+                                </Text>
+                              </Box>
+                            </Flex>
+                          </Flex>
+                        </Card>
+                      ))
+                    )}
+                  </Flex>
+                </Flex>
+              </Flex>
+            </Card>
+            <Card variant="surface">
+              <Flex direction="column" gap="4" align="center">
+                <Text color="gray" size="2">
+                  Scan to join
+                </Text>
+                <Inset clip="padding-box" side="all" style={{ background: "white", padding: 16 }}>
+                  <QRCode value={qrValue || "pending"} size={220} />
+                </Inset>
+                <Text size="2" color="gray">
+                  Or visit <Text as="span" weight="bold">{joinUrl || "Loading link..."}</Text>
+                </Text>
+                <Button
+                  size="4"
+                  onClick={handleStartGame}
+                  disabled={game.players.length === 0}
+                  loading={startLoading}
+                >
+                  <RocketIcon />
+                  Start Game
+                </Button>
+                {error && (
+                  <Text color="red" size="2">
+                    {error}
+                  </Text>
+                )}
+              </Flex>
+            </Card>
+          </Grid>
+        )}
+      </Flex>
+    </Box>
   );
 }
