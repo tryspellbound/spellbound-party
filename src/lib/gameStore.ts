@@ -1,13 +1,25 @@
 import { randomUUID } from "crypto";
 import { Buffer } from "node:buffer";
 import { getRedisClient } from "./redis";
-import type { GameState, Player } from "@/types/game";
+import type { GameState, GameTurn, Player } from "@/types/game";
 
 const GAME_KEY_PREFIX = "game:";
 const CODE_ALPHABET = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ";
 
 const buildKey = (id: string) => `${GAME_KEY_PREFIX}${id}`;
 const MAX_AVATAR_BYTES = 300 * 1024;
+
+type StoredGame = Partial<GameState> & {
+  id: string;
+  createdAt: number;
+  status: GameState["status"];
+};
+
+const normalizeGame = (game: StoredGame): GameState => ({
+  ...game,
+  players: game.players ?? [],
+  turns: game.turns ?? [],
+});
 
 export const generateGameCode = (length = 4) => {
   let code = "";
@@ -20,7 +32,7 @@ export const generateGameCode = (length = 4) => {
 
 async function persistGame(game: GameState) {
   const client = await getRedisClient();
-  await client.set(buildKey(game.id), JSON.stringify(game));
+  await client.set(buildKey(game.id), JSON.stringify(normalizeGame(game)));
 }
 
 const sanitizeAvatar = (avatar?: string) => {
@@ -52,7 +64,7 @@ export async function getGame(gameId: string): Promise<GameState | null> {
 
   const client = await getRedisClient();
   const data = await client.get(buildKey(gameId.toUpperCase()));
-  return data ? (JSON.parse(data) as GameState) : null;
+  return data ? normalizeGame(JSON.parse(data) as StoredGame) : null;
 }
 
 export async function createGame(): Promise<GameState> {
@@ -73,10 +85,33 @@ export async function createGame(): Promise<GameState> {
     createdAt: Date.now(),
     status: "lobby",
     players: [],
+    turns: [],
   };
 
   await persistGame(game);
   return game;
+}
+
+export async function appendTurnToGame(
+  gameId: string,
+  payload: Pick<GameTurn, "continuation"> & Partial<Pick<GameTurn, "imagePrompt" | "image">>,
+): Promise<GameTurn> {
+  const game = await getGame(gameId);
+  if (!game) {
+    throw new Error("Game not found");
+  }
+
+  const turn: GameTurn = {
+    id: randomUUID(),
+    createdAt: Date.now(),
+    continuation: payload.continuation,
+    imagePrompt: payload.imagePrompt,
+    image: payload.image,
+  };
+
+  game.turns = [...game.turns, turn];
+  await persistGame(game);
+  return turn;
 }
 
 export async function addPlayerToGame(
