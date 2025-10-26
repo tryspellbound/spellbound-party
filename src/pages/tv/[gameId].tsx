@@ -24,6 +24,9 @@ export default function TvGameView() {
   const [cooldownRemaining, setCooldownRemaining] = useState(0);
   const [engineError, setEngineError] = useState<string | null>(null);
   const sourceRef = useRef<EventSource | null>(null);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const audioChunksQueue = useRef<string[]>([]);
+  const currentAudioIndex = useRef(0);
 
   const playerCount = game?.players.length ?? 0;
   const canAutoRun = game?.status === "in-progress" && playerCount > 0;
@@ -87,6 +90,13 @@ export default function TvGameView() {
     setEngineError(null);
     sourceRef.current?.close();
     sourceRef.current = null;
+    // Stop any playing audio and reset queue
+    audioChunksQueue.current = [];
+    currentAudioIndex.current = 0;
+    if (audioRef.current) {
+      audioRef.current.pause();
+      audioRef.current.currentTime = 0;
+    }
   }, []);
 
   useEffect(() => {
@@ -104,6 +114,13 @@ export default function TvGameView() {
         setStreamingNarration("");
         setStreamingImage(null);
         setLivePrompt(null);
+        // Clear audio queue and stop previous audio
+        audioChunksQueue.current = [];
+        currentAudioIndex.current = 0;
+        if (audioRef.current) {
+          audioRef.current.pause();
+          audioRef.current.currentTime = 0;
+        }
 
         const closeSource = () => {
           source.close();
@@ -136,6 +153,82 @@ export default function TvGameView() {
           if (payload.image) {
             setStreamingImage(payload.image);
           }
+        });
+
+        source.addEventListener("audio_chunk", (event) => {
+          const payload = JSON.parse((event as MessageEvent<string>).data) as { chunk?: string; index?: number };
+          console.log("Received audio chunk:", payload.index, "chunk length:", payload.chunk?.length);
+          if (payload.chunk) {
+            // Add chunk to queue
+            audioChunksQueue.current.push(payload.chunk);
+            console.log("Audio queue length:", audioChunksQueue.current.length);
+
+            // Start playback if this is the first chunk
+            if (audioChunksQueue.current.length === 1 && currentAudioIndex.current === 0) {
+              console.log("Starting audio playback with first chunk");
+              playNextAudioChunk();
+            }
+          }
+        });
+
+        const playNextAudioChunk = () => {
+          console.log("playNextAudioChunk called, index:", currentAudioIndex.current, "queue length:", audioChunksQueue.current.length);
+
+          if (currentAudioIndex.current >= audioChunksQueue.current.length) {
+            console.log("No more chunks to play");
+            return;
+          }
+
+          const chunk = audioChunksQueue.current[currentAudioIndex.current];
+          if (!chunk) {
+            console.log("Chunk is empty");
+            return;
+          }
+
+          console.log("Playing chunk", currentAudioIndex.current, "size:", chunk.length);
+
+          if (!audioRef.current) {
+            console.log("Creating new Audio element");
+            audioRef.current = new Audio();
+            audioRef.current.addEventListener("ended", () => {
+              console.log("Audio chunk ended, playing next");
+              currentAudioIndex.current++;
+              playNextAudioChunk();
+            });
+          }
+
+          try {
+            // Convert base64 chunk to audio URL
+            const audioBlob = new Blob(
+              [Uint8Array.from(atob(chunk), (c) => c.charCodeAt(0))],
+              { type: "audio/mpeg" }
+            );
+            const audioUrl = URL.createObjectURL(audioBlob);
+            console.log("Created blob URL:", audioUrl);
+
+            audioRef.current.src = audioUrl;
+            audioRef.current.play().then(() => {
+              console.log("Audio playback started successfully");
+            }).catch((err) => {
+              console.error("Audio playback failed:", err);
+              // Try next chunk on error
+              currentAudioIndex.current++;
+              playNextAudioChunk();
+            });
+          } catch (err) {
+            console.error("Error creating audio blob:", err);
+            currentAudioIndex.current++;
+            playNextAudioChunk();
+          }
+        };
+
+        source.addEventListener("audio_complete", () => {
+          // Audio streaming is complete, all chunks should be queued
+        });
+
+        source.addEventListener("audio_error", (event) => {
+          const payload = JSON.parse((event as MessageEvent<string>).data) as { message?: string };
+          console.error("Audio error:", payload.message);
         });
 
         source.addEventListener("turn_complete", (event) => {
@@ -213,6 +306,10 @@ export default function TvGameView() {
   useEffect(
     () => () => {
       sourceRef.current?.close();
+      if (audioRef.current) {
+        audioRef.current.pause();
+        audioRef.current = null;
+      }
     },
     [],
   );

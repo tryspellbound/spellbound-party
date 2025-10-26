@@ -3,6 +3,7 @@ import { getGame, appendTurnToGame } from "@/lib/gameStore";
 import { buildGameLoopSystemPrompt } from "@/lib/promptRenderer";
 import { streamTurnText } from "@/services/textGeneration";
 import { streamTurnImage } from "@/services/imageGeneration";
+import { streamTurnAudio } from "@/services/audioGeneration";
 
 export const config = {
   api: {
@@ -177,10 +178,43 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const parsedTurn = parseTurnPayload(rawBuffer);
     sendEvent("continuation_complete", { text: parsedTurn.continuation });
 
+    // Start audio generation immediately after text is complete
+    sendEvent("turn_status", { status: "audio" });
+    const audioChunks: string[] = [];
+    const audioGenerationPromise = streamTurnAudio({
+      text: parsedTurn.continuation,
+      signal: abortController.signal,
+      onChunk: (audioBase64, characterIndex) => {
+        audioChunks.push(audioBase64);
+        // Send audio chunk as base64 for streaming playback
+        sendEvent("audio_chunk", {
+          chunk: audioBase64,
+          index: audioChunks.length - 1,
+          characterIndex,
+        });
+      },
+    })
+      .then(() => {
+        // All chunks have been sent via the callback
+        sendEvent("audio_complete", { totalChunks: audioChunks.length });
+      })
+      .catch((err) => {
+        console.error("Audio generation error:", err);
+        sendEvent("audio_error", {
+          message: err instanceof Error ? err.message : "Audio generation failed",
+        });
+      });
+
     if (parsedTurn.imagePrompt && !imagePrompt) {
       imagePrompt = parsedTurn.imagePrompt;
       startImageGeneration(parsedTurn.imagePrompt);
     }
+
+    // Wait for both image and audio to complete
+    await Promise.all([
+      imageTask,
+      audioGenerationPromise,
+    ]);
 
     if (imageTask) {
       const resolved = await imageTask;
