@@ -307,19 +307,13 @@ export default function TurnNarrationOverlay({
             opacity: 1;
           }
         }
-        /* Custom scrollbar styling */
+        /* Hide scrollbar */
         .turn-overlay ::-webkit-scrollbar {
-          width: 8px;
+          display: none;
         }
-        .turn-overlay ::-webkit-scrollbar-track {
-          background: transparent;
-        }
-        .turn-overlay ::-webkit-scrollbar-thumb {
-          background: var(--gray-8);
-          border-radius: 4px;
-        }
-        .turn-overlay ::-webkit-scrollbar-thumb:hover {
-          background: var(--gray-9);
+        .turn-overlay {
+          -ms-overflow-style: none;  /* IE and Edge */
+          scrollbar-width: none;  /* Firefox */
         }
       `}</style>
     </Box>

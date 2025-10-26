@@ -1,10 +1,10 @@
-import { useEffect, useMemo, useRef, type JSX } from 'react';
-import { useFrame, useGraph } from '@react-three/fiber';
-import { useGLTF } from '@react-three/drei';
-import { Lipsync, VISEMES } from 'wawa-lipsync';
-import { SkeletonUtils } from 'three-stdlib';
-import type { GLTF } from 'three-stdlib';
-import * as THREE from 'three';
+import { useEffect, useMemo, useRef, type JSX } from "react";
+import { useFrame, useGraph } from "@react-three/fiber";
+import { useGLTF } from "@react-three/drei";
+import { Lipsync, VISEMES } from "wawa-lipsync";
+import { SkeletonUtils } from "three-stdlib";
+import type { GLTF } from "three-stdlib";
+import * as THREE from "three";
 
 type GLTFResult = GLTF & {
   nodes: {
@@ -26,15 +26,17 @@ type GLTFResult = GLTF & {
   };
 };
 
-type LipSyncAvatarProps = JSX.IntrinsicElements['group'] & {
+type LipSyncAvatarProps = JSX.IntrinsicElements["group"] & {
   audioElement?: HTMLAudioElement | null;
 };
 
 export function LipSyncAvatar({ audioElement, ...props }: LipSyncAvatarProps) {
   const group = useRef<THREE.Group>(null);
-  const { scene, materials } = useGLTF('/avatar.glb') as unknown as GLTFResult;
+  const { scene, materials } = useGLTF("/avatar.glb") as unknown as GLTFResult;
   const clone = useMemo(() => SkeletonUtils.clone(scene), [scene]);
-  const { nodes } = useGraph(clone) as unknown as { nodes: GLTFResult['nodes'] };
+  const { nodes } = useGraph(clone) as unknown as {
+    nodes: GLTFResult["nodes"];
+  };
 
   // Create a single Lipsync instance
   const lipsyncManager = useMemo(() => new Lipsync(), []);
@@ -51,9 +53,12 @@ export function LipSyncAvatar({ audioElement, ...props }: LipSyncAvatarProps) {
       try {
         lipsyncManager.connectAudio(audioElement);
         connectedAudioRef.current = audioElement;
-        console.log('[LipSyncAvatar] Connected audio element to lipsync');
+        console.log("[LipSyncAvatar] Connected audio element to lipsync");
       } catch (error) {
-        console.error('[LipSyncAvatar] Failed to connect audio element:', error);
+        console.error(
+          "[LipSyncAvatar] Failed to connect audio element:",
+          error
+        );
       }
     }
 
@@ -64,7 +69,7 @@ export function LipSyncAvatar({ audioElement, ...props }: LipSyncAvatarProps) {
   }, [audioElement, lipsyncManager]);
 
   // Helper to lerp morph target values across all meshes in the scene
-  const lerpMorphTarget = (target: string, value: number, speed = 0.1) => {
+  const lerpMorphTarget = (target: string, value: number, speed = 2) => {
     clone.traverse((child) => {
       if (child instanceof THREE.SkinnedMesh && child.morphTargetDictionary) {
         const index = child.morphTargetDictionary[target];
@@ -78,7 +83,7 @@ export function LipSyncAvatar({ audioElement, ...props }: LipSyncAvatarProps) {
         child.morphTargetInfluences[index] = THREE.MathUtils.lerp(
           child.morphTargetInfluences[index],
           value,
-          speed
+          speed * 1.5
         );
       }
     });
@@ -93,20 +98,21 @@ export function LipSyncAvatar({ audioElement, ...props }: LipSyncAvatarProps) {
     // Process audio to get current viseme (returns a string like "viseme_O")
     lipsyncManager.processAudio();
     const viseme = lipsyncManager.viseme;
+    //@ts-ignore
+    const state = lipsyncManager.state;
 
     if (!viseme) {
       return;
     }
 
-    // Lerp the current viseme to 1
-    lerpMorphTarget(viseme, 1, 0.3);
+    lerpMorphTarget(viseme, 1, state === "vowel" ? 0.2 : 0.4);
 
     // Lerp all other visemes to 0
     Object.values(VISEMES).forEach((visemeValue) => {
       if (viseme === visemeValue) {
         return;
       }
-      lerpMorphTarget(visemeValue, 0, 0.15);
+      lerpMorphTarget(visemeValue, 0, state === "vowel" ? 0.1 : 0.2);
     });
   });
 
@@ -171,4 +177,4 @@ export function LipSyncAvatar({ audioElement, ...props }: LipSyncAvatarProps) {
   );
 }
 
-useGLTF.preload('/avatar.glb');
+useGLTF.preload("/avatar.glb");
