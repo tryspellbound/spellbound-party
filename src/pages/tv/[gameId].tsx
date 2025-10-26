@@ -157,73 +157,54 @@ export default function TvGameView() {
 
         source.addEventListener("audio_chunk", (event) => {
           const payload = JSON.parse((event as MessageEvent<string>).data) as { chunk?: string; index?: number };
-          console.log("Received audio chunk:", payload.index, "chunk length:", payload.chunk?.length);
           if (payload.chunk) {
-            // Add chunk to queue
+            // Accumulate chunks for smooth playback
             audioChunksQueue.current.push(payload.chunk);
-            console.log("Audio queue length:", audioChunksQueue.current.length);
-
-            // Start playback if this is the first chunk
-            if (audioChunksQueue.current.length === 1 && currentAudioIndex.current === 0) {
-              console.log("Starting audio playback with first chunk");
-              playNextAudioChunk();
-            }
           }
         });
 
-        const playNextAudioChunk = () => {
-          console.log("playNextAudioChunk called, index:", currentAudioIndex.current, "queue length:", audioChunksQueue.current.length);
-
-          if (currentAudioIndex.current >= audioChunksQueue.current.length) {
-            console.log("No more chunks to play");
+        source.addEventListener("audio_complete", () => {
+          // All chunks received, concatenate and play
+          if (audioChunksQueue.current.length === 0) {
+            console.log("No audio chunks to play");
             return;
           }
 
-          const chunk = audioChunksQueue.current[currentAudioIndex.current];
-          if (!chunk) {
-            console.log("Chunk is empty");
-            return;
-          }
-
-          console.log("Playing chunk", currentAudioIndex.current, "size:", chunk.length);
-
-          if (!audioRef.current) {
-            console.log("Creating new Audio element");
-            audioRef.current = new Audio();
-            audioRef.current.addEventListener("ended", () => {
-              console.log("Audio chunk ended, playing next");
-              currentAudioIndex.current++;
-              playNextAudioChunk();
-            });
-          }
+          console.log(`Playing complete audio from ${audioChunksQueue.current.length} chunks`);
 
           try {
-            // Convert base64 chunk to audio URL
-            const audioBlob = new Blob(
-              [Uint8Array.from(atob(chunk), (c) => c.charCodeAt(0))],
-              { type: "audio/mpeg" }
-            );
+            // Concatenate all base64 chunks into one string
+            const completeAudioBase64 = audioChunksQueue.current.join("");
+
+            // Convert to blob
+            const binaryString = atob(completeAudioBase64);
+            const bytes = new Uint8Array(binaryString.length);
+            for (let i = 0; i < binaryString.length; i++) {
+              bytes[i] = binaryString.charCodeAt(i);
+            }
+            const audioBlob = new Blob([bytes], { type: "audio/mpeg" });
             const audioUrl = URL.createObjectURL(audioBlob);
-            console.log("Created blob URL:", audioUrl);
+
+            // Play the complete audio
+            if (!audioRef.current) {
+              audioRef.current = new Audio();
+            }
 
             audioRef.current.src = audioUrl;
             audioRef.current.play().then(() => {
               console.log("Audio playback started successfully");
             }).catch((err) => {
               console.error("Audio playback failed:", err);
-              // Try next chunk on error
-              currentAudioIndex.current++;
-              playNextAudioChunk();
             });
-          } catch (err) {
-            console.error("Error creating audio blob:", err);
-            currentAudioIndex.current++;
-            playNextAudioChunk();
-          }
-        };
 
-        source.addEventListener("audio_complete", () => {
-          // Audio streaming is complete, all chunks should be queued
+            // Cleanup URL after playback
+            audioRef.current.addEventListener("ended", () => {
+              URL.revokeObjectURL(audioUrl);
+            }, { once: true });
+
+          } catch (err) {
+            console.error("Error creating complete audio:", err);
+          }
         });
 
         source.addEventListener("audio_error", (event) => {

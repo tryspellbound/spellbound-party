@@ -51,9 +51,8 @@ export async function streamTurnAudio({ text, signal, onChunk }: AudioStreamOpti
   try {
     const audioStream = await client.textToSpeech.streamWithTimestamps(voiceId, {
       text,
-      modelId: "eleven_multilingual_v2", // Stable model as per documentation
+      modelId: "eleven_v3", // Stable model as per documentation
       outputFormat: "mp3_44100_128",
-      optimizeStreamingLatency: 4, // Maximum optimization for low latency
       voiceSettings: {
         stability: 0.5,
         similarityBoost: 0.8,
