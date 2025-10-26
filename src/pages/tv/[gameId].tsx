@@ -387,10 +387,12 @@ export default function TvGameView() {
               audioAlignmentRef.current.characterEndTimesSeconds.push(...alignmentData.characterEndTimesSeconds);
             }
 
-            // Only update state occasionally for UI updates (e.g., every 5th chunk)
-            if (payload.index && payload.index % 5 === 0) {
-              setAudioAlignment({ ...audioAlignmentRef.current });
-            }
+            // Update state every chunk by passing references (not copies) - very fast
+            setAudioAlignment({
+              characters: audioAlignmentRef.current.characters,
+              characterStartTimesSeconds: audioAlignmentRef.current.characterStartTimesSeconds,
+              characterEndTimesSeconds: audioAlignmentRef.current.characterEndTimesSeconds,
+            });
           }
 
           // Initialize MediaSource on first chunk
