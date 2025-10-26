@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef } from 'react';
+import { useEffect, useMemo, useRef, type JSX } from 'react';
 import { useFrame, useGraph } from '@react-three/fiber';
 import { useGLTF } from '@react-three/drei';
 import { Lipsync } from 'wawa-lipsync';
@@ -32,9 +32,9 @@ type LipSyncAvatarProps = JSX.IntrinsicElements['group'] & {
 
 export function LipSyncAvatar({ audioElement, ...props }: LipSyncAvatarProps) {
   const group = useRef<THREE.Group>(null);
-  const { scene } = useGLTF('/avatar.glb');
+  const { scene, materials } = useGLTF('/avatar.glb') as unknown as GLTFResult;
   const clone = useMemo(() => SkeletonUtils.clone(scene), [scene]);
-  const { nodes, materials } = useGraph(clone) as GLTFResult;
+  const { nodes } = useGraph(clone) as unknown as { nodes: GLTFResult['nodes'] };
 
   // Create a single Lipsync instance
   const lipsyncManager = useMemo(() => new Lipsync(), []);
@@ -92,6 +92,11 @@ export function LipSyncAvatar({ audioElement, ...props }: LipSyncAvatarProps) {
         teeth.morphTargetInfluences[i] = 0;
       }
     }
+    console.log("viseme", viseme);
+    console.log("head.morphTargetDictionary", head.morphTargetDictionary);
+    console.log("head.morphTargetInfluences", head.morphTargetInfluences);
+    console.log("teeth.morphTargetDictionary", teeth.morphTargetDictionary);
+    console.log("teeth.morphTargetInfluences", teeth.morphTargetInfluences);
 
     // Apply new viseme influences
     Object.entries(viseme).forEach(([visemeName, value]) => {

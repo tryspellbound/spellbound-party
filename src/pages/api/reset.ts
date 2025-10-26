@@ -23,7 +23,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
     // Delete all game keys
     if (gameKeys.length > 0) {
-      const deleted = await client.del(...gameKeys);
+      const deleted = await client.del(gameKeys);
       console.log(`[RESET] Deleted ${deleted} keys`);
     }
 
