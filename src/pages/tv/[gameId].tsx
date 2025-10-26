@@ -1,8 +1,10 @@
 import { useRouter } from "next/router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Avatar, Badge, Box, Button, Card, Flex, Grid, Heading, Separator, Text } from "@radix-ui/themes";
-import { ReloadIcon } from "@radix-ui/react-icons";
+import { Badge, Box, Flex, Heading, Text } from "@radix-ui/themes";
 import type { GameState, GameTurn } from "@/types/game";
+import PlayerListPanel from "@/components/tv/PlayerListPanel";
+import TurnControlsPanel from "@/components/tv/TurnControlsPanel";
+import TurnShowcase from "@/components/tv/TurnShowcase";
 
 const POLL_INTERVAL = 2000;
 const COOLDOWN_SECONDS = 5;
@@ -17,6 +19,7 @@ export default function TvGameView() {
   const [turns, setTurns] = useState<GameTurn[]>([]);
   const [streamingNarration, setStreamingNarration] = useState("");
   const [streamingImage, setStreamingImage] = useState<string | null>(null);
+  const [livePrompt, setLivePrompt] = useState<string | null>(null);
   const [engineActive, setEngineActive] = useState(false);
   const [engineStatus, setEngineStatus] = useState<"idle" | "running" | "cooldown">("idle");
   const [cooldownRemaining, setCooldownRemaining] = useState(0);
@@ -74,11 +77,11 @@ export default function TvGameView() {
     setTurns(game?.turns ?? []);
   }, [game?.turns]);
 
-  const startEngine = () => {
+  const startEngine = useCallback(() => {
     if (!canAutoRun) return;
     setEngineActive(true);
     setEngineError(null);
-  };
+  }, [canAutoRun]);
 
   const stopEngine = useCallback(() => {
     setEngineActive(false);
@@ -86,15 +89,14 @@ export default function TvGameView() {
     setCooldownRemaining(0);
     setStreamingNarration("");
     setStreamingImage(null);
+    setLivePrompt(null);
     setEngineError(null);
     sourceRef.current?.close();
     sourceRef.current = null;
   }, []);
 
   useEffect(() => {
-    if (!engineActive || !game?.id) {
-      return;
-    }
+    if (!engineActive || !game?.id) return;
 
     let cancelled = false;
 
@@ -107,6 +109,7 @@ export default function TvGameView() {
         setEngineStatus("running");
         setStreamingNarration("");
         setStreamingImage(null);
+        setLivePrompt(null);
 
         const closeSource = () => {
           source.close();
@@ -118,6 +121,13 @@ export default function TvGameView() {
         source.addEventListener("continuation_chunk", (event) => {
           const payload = JSON.parse((event as MessageEvent<string>).data) as { text?: string };
           setStreamingNarration(payload.text ?? "");
+        });
+
+        source.addEventListener("image_prompt", (event) => {
+          const payload = JSON.parse((event as MessageEvent<string>).data) as { prompt?: string };
+          if (payload.prompt) {
+            setLivePrompt(payload.prompt);
+          }
         });
 
         source.addEventListener("image_partial", (event) => {
@@ -149,6 +159,7 @@ export default function TvGameView() {
             }
             return { ...prev, turns: [...(prev.turns ?? []), payload.turn] };
           });
+          setLivePrompt(null);
         });
 
         source.addEventListener("turn_error", (event) => {
@@ -216,172 +227,76 @@ export default function TvGameView() {
     return null;
   }
 
+  const latestTurn = turns[turns.length - 1];
+  const displayNarration =
+    streamingNarration ||
+    latestTurn?.continuation ||
+    (canAutoRun ? "Start the turn engine to conjure the next beat." : "Waiting for the adventure to begin.");
+  const displayImage = streamingImage ?? latestTurn?.image ?? null;
+  const displayPrompt = streamingNarration ? livePrompt ?? undefined : latestTurn?.imagePrompt;
+  const narrationKey = streamingNarration ? "streaming" : latestTurn?.id ?? "idle";
+
   return (
     <Box
-      p={{ initial: "4", sm: "7" }}
+      p={{ initial: "4", sm: "6" }}
       style={{
         minHeight: "100vh",
-        background:
-          "radial-gradient(circle at top, rgba(21,94,239,0.15), transparent 55%), #02010a",
+        background: "linear-gradient(135deg, #04030f, #100622)",
       }}
     >
-      <Flex direction="column" gap="3">
+      <Flex direction="column" gap="5">
         <Flex justify="between" align="center" wrap="wrap" gap="4">
           <Box>
             <Text color="gray" size="2">
               Game Code
             </Text>
-            <Heading size="9">{typeof gameId === "string" ? gameId : "--"}</Heading>
-            <Text color="gray" size="2">
-              Share {joinUrl || "the join link"}
-            </Text>
+            <Heading size="8">{typeof gameId === "string" ? gameId : "--"}</Heading>
           </Box>
-          <Flex gap="3" align="center">
-            <Badge size="3" color="plum">
-              {playerCount} {playerCount === 1 ? "Player" : "Players"}
-            </Badge>
-            <Button variant="soft" onClick={() => fetchGame(false)} loading={loading}>
-              <ReloadIcon />
-              Refresh
-            </Button>
+          <Badge size="3" color="plum">
+            {playerCount} {playerCount === 1 ? "Player" : "Players"}
+          </Badge>
+        </Flex>
+        {error && (
+          <Box
+            style={{
+              borderRadius: 16,
+              border: "1px solid rgba(255,0,0,0.4)",
+              padding: "1rem",
+              background: "rgba(255,0,0,0.08)",
+            }}
+          >
+            <Text color="red">{error}</Text>
+          </Box>
+        )}
+        <Flex gap="5" align="start" wrap="wrap">
+          <Box style={{ width: "320px", flexShrink: 0 }}>
+            <PlayerListPanel
+              players={game?.players ?? []}
+              gameCode={typeof gameId === "string" ? gameId : undefined}
+              joinUrl={joinUrl || undefined}
+            />
+          </Box>
+          <Flex direction="column" gap="4" style={{ flex: 1, minWidth: 0 }}>
+            <TurnControlsPanel
+              engineStatus={engineStatus}
+              engineActive={engineActive}
+              cooldownRemaining={cooldownRemaining}
+              canRun={!!canAutoRun && !loading}
+              onStart={startEngine}
+              onStop={stopEngine}
+              engineError={engineError}
+              turns={turns}
+            />
+            <TurnShowcase
+              imageSrc={displayImage ?? undefined}
+              narration={displayNarration}
+              prompt={displayPrompt}
+              variantKey={narrationKey}
+            />
           </Flex>
         </Flex>
-        <Separator size="4" />
-        {error && (
-          <Card variant="classic">
-            <Text color="red">{error}</Text>
-          </Card>
-        )}
-        <Grid columns={{ initial: "1", md: "2" }} gap="4" align="start">
-          <Card variant="surface">
-            <Flex justify="between" align="center" mb="3">
-              <Heading size="4">Players</Heading>
-              <Badge color="plum">{playerCount}</Badge>
-            </Flex>
-            <Flex direction="column" gap="2">
-              {game?.players.length ? (
-                game.players.map((player) => (
-                  <Card key={player.id} variant="classic">
-                    <Flex justify="between" align="center" gap="3">
-                      <Flex align="center" gap="3">
-                        <Avatar
-                          size="3"
-                          radius="full"
-                          src={player.avatar}
-                          fallback={(player.name[0] ?? "?").toUpperCase()}
-                        />
-                        <Box>
-                          <Text weight="bold">{player.name}</Text>
-                          <Text color="gray" size="2">
-                            Joined {new Date(player.joinedAt).toLocaleTimeString()}
-                          </Text>
-                        </Box>
-                      </Flex>
-                    </Flex>
-                  </Card>
-                ))
-              ) : (
-                <Text color="gray">Waiting for players to join…</Text>
-              )}
-            </Flex>
-          </Card>
-          <Card variant="surface">
-            <Flex justify="between" align="center" mb="3">
-              <Heading size="4">Turn Engine</Heading>
-              <Badge color={engineStatus === "running" ? "lime" : engineStatus === "cooldown" ? "amber" : "gray"}>
-                {engineStatus === "running"
-                  ? "Streaming"
-                  : engineStatus === "cooldown"
-                    ? `Cooldown ${cooldownRemaining || ""}`.trim()
-                    : "Idle"}
-              </Badge>
-            </Flex>
-            <Text color="gray" size="2" mb="3">
-              Streams narration and prompts directly from the storyteller AI. Requires the game to be in progress.
-            </Text>
-            <Flex gap="2" wrap="wrap" mb="3">
-              <Button onClick={startEngine} disabled={!canAutoRun || engineActive}>
-                Start Turn Engine
-              </Button>
-              <Button variant="soft" color="gray" onClick={stopEngine} disabled={!engineActive}>
-                Stop
-              </Button>
-            </Flex>
-            {engineError && (
-              <Text color="red" size="2" mb="2">
-                {engineError}
-              </Text>
-            )}
-            <Box
-              style={{
-                minHeight: 180,
-                borderRadius: 12,
-                border: "1px solid rgba(255,255,255,0.08)",
-                padding: "1rem",
-                background: "rgba(255,255,255,0.02)",
-                overflowY: "auto",
-                maxHeight: "40vh",
-              }}
-            >
-              <Text
-                size="3"
-                style={{
-                  whiteSpace: "pre-wrap",
-                  color: streamingNarration ? "var(--gray-1, #fdfdfd)" : "var(--gray-11)",
-                }}
-              >
-                {streamingNarration || "Narration will appear here as it streams in."}
-              </Text>
-            </Box>
-            {streamingImage && (
-              <Box mt="3" style={{ textAlign: "center" }}>
-                <img
-                  src={streamingImage}
-                  alt="Turn artwork preview"
-                  style={{ maxWidth: "100%", borderRadius: 12, boxShadow: "0 20px 60px rgba(0,0,0,0.35)" }}
-                />
-              </Box>
-            )}
-          </Card>
-        </Grid>
-        <Card variant="classic">
-          <Flex justify="between" align="center" mb="3">
-            <Heading size="4">Story Log</Heading>
-            <Badge color="iris">{turns.length} turns</Badge>
-          </Flex>
-          {turns.length === 0 ? (
-            <Text color="gray">No turns have been recorded yet. Start the engine to begin!</Text>
-          ) : (
-            <Flex direction="column" gap="3">
-              {turns.map((turn, index) => (
-                <Card key={turn.id} variant="surface">
-                  <Flex justify="between" align="center" mb="2">
-                    <Text weight="bold">Turn {index + 1}</Text>
-                    <Text color="gray" size="2">
-                      {new Date(turn.createdAt).toLocaleTimeString()}
-                    </Text>
-                  </Flex>
-                  {turn.image && (
-                    <Box mb="2" style={{ textAlign: "center" }}>
-                      <img
-                        src={turn.image}
-                        alt={`Turn ${index + 1} illustration`}
-                        style={{ maxWidth: "100%", borderRadius: 12 }}
-                      />
-                    </Box>
-                  )}
-                  <Text style={{ whiteSpace: "pre-wrap" }}>{turn.continuation}</Text>
-                  {turn.imagePrompt && (
-                    <Text size="2" color="gray" mt="2">
-                      Image prompt: {turn.imagePrompt}
-                    </Text>
-                  )}
-                </Card>
-              ))}
-            </Flex>
-          )}
-        </Card>
       </Flex>
     </Box>
   );
 }
+
