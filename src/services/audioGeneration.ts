@@ -44,7 +44,7 @@ export async function streamTurnAudio({ text, signal, onChunk }: AudioStreamOpti
   const client = getAudioClient();
 
   // Using a natural, storytelling voice
-  const voiceId = "JBFqnCBsd6RMkjVDRZzb"; // Chris - Deep and narrative
+  const voiceId = "kPzsL2i3teMYv0FxEYQ6"; // Chris - Deep and narrative
 
   console.log("Starting audio generation for text:", text.substring(0, 100));
 
@@ -54,10 +54,7 @@ export async function streamTurnAudio({ text, signal, onChunk }: AudioStreamOpti
       modelId: "eleven_v3", // Stable model as per documentation
       outputFormat: "mp3_44100_128",
       voiceSettings: {
-        stability: 0.5,
-        similarityBoost: 0.8,
-        style: 0.5,
-        useSpeakerBoost: true,
+        stability: 0.0,
       },
     });
 

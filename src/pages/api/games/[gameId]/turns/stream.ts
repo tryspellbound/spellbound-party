@@ -8,6 +8,7 @@ import { streamTurnAudio } from "@/services/audioGeneration";
 export const config = {
   api: {
     bodyParser: false,
+    responseLimit: false,
   },
 };
 
@@ -113,7 +114,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
     const systemPrompt = await buildGameLoopSystemPrompt(game);
     const userPrompt =
-      "Generate the very next turn for Spellbound Party. Respond only with the XML schema described in the system prompt.";
+      "Generate the very next turn for Spellbound Party. Respond only with the XML schema described in the system prompt. Aim for about 4 paragraphs of content.";
 
     sendEvent("turn_status", { status: "narration" });
     let rawBuffer = "";
