@@ -6,9 +6,15 @@ type TurnShowcaseProps = {
   narration: string;
   prompt?: string;
   variantKey: string;
+  audioPlaybackTime?: number;
+  audioAlignment?: {
+    characters: string[];
+    characterStartTimesSeconds: number[];
+    characterEndTimesSeconds: number[];
+  } | null;
 };
 
-export default function TurnShowcase({ imageSrc, narration, prompt, variantKey }: TurnShowcaseProps) {
+export default function TurnShowcase({ imageSrc, narration, prompt, variantKey, audioPlaybackTime = 0, audioAlignment = null }: TurnShowcaseProps) {
   return (
     <Box
       style={{
@@ -45,7 +51,13 @@ export default function TurnShowcase({ imageSrc, narration, prompt, variantKey }
           </Text>
         </Box>
       )}
-      <TurnNarrationOverlay text={narration} prompt={prompt} variantKey={variantKey} />
+      <TurnNarrationOverlay
+        text={narration}
+        prompt={prompt}
+        variantKey={variantKey}
+        audioPlaybackTime={audioPlaybackTime}
+        audioAlignment={audioAlignment}
+      />
     </Box>
   );
 }

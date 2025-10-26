@@ -234,13 +234,14 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const audioGenerationPromise = streamTurnAudio({
       text: parsedTurn.continuation,
       signal: abortController.signal,
-      onChunk: (audioBase64, characterIndex) => {
+      onChunk: (audioBase64, alignment, normalizedAlignment) => {
         audioChunks.push(audioBase64);
-        // Send audio chunk as base64 for streaming playback
+        // Send audio chunk as base64 for streaming playback with alignment data
         sendEvent("audio_chunk", {
           chunk: audioBase64,
           index: audioChunks.length - 1,
-          characterIndex,
+          alignment: alignment || undefined,
+          normalizedAlignment: normalizedAlignment || undefined,
         });
 
         // Log every 50 chunks to avoid spam

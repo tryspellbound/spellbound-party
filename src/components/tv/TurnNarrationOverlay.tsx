@@ -1,15 +1,67 @@
 import { Box, Text } from "@radix-ui/themes";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useMemo } from "react";
 
 type TurnNarrationOverlayProps = {
   text: string;
   prompt?: string;
   variantKey: string;
+  audioPlaybackTime?: number;
+  audioAlignment?: {
+    characters: string[];
+    characterStartTimesSeconds: number[];
+    characterEndTimesSeconds: number[];
+  } | null;
 };
 
-export default function TurnNarrationOverlay({ text, prompt, variantKey }: TurnNarrationOverlayProps) {
+export default function TurnNarrationOverlay({
+  text,
+  prompt,
+  variantKey,
+  audioPlaybackTime = 0,
+  audioAlignment = null,
+}: TurnNarrationOverlayProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const [animate, setAnimate] = useState(false);
+
+  // Calculate how many characters have been spoken based on playback time
+  const spokenCharacterCount = useMemo(() => {
+    if (!audioAlignment || audioPlaybackTime === 0) {
+      return 0;
+    }
+
+    // Find the last character whose end time is less than current playback time
+    let count = 0;
+    for (let i = 0; i < audioAlignment.characterEndTimesSeconds.length; i++) {
+      if (audioAlignment.characterEndTimesSeconds[i] <= audioPlaybackTime) {
+        count = i + 1;
+      } else {
+        break;
+      }
+    }
+    return count;
+  }, [audioAlignment, audioPlaybackTime]);
+
+  // Split text into spoken and unspoken portions
+  const { spokenText, unspokenText } = useMemo(() => {
+    if (!audioAlignment || spokenCharacterCount === 0) {
+      return { spokenText: "", unspokenText: text };
+    }
+
+    // Reconstruct text from alignment characters
+    const alignmentText = audioAlignment.characters.join("");
+
+    // If alignment text matches our text, use it directly
+    if (alignmentText === text || text.startsWith(alignmentText)) {
+      const spoken = alignmentText.slice(0, spokenCharacterCount);
+      const unspoken = text.slice(spokenCharacterCount);
+      return { spokenText: spoken, unspokenText: unspoken };
+    }
+
+    // Fallback: use character count on original text
+    const spoken = text.slice(0, spokenCharacterCount);
+    const unspoken = text.slice(spokenCharacterCount);
+    return { spokenText: spoken, unspokenText: unspoken };
+  }, [text, audioAlignment, spokenCharacterCount]);
 
   // Auto-scroll to bottom as text updates
   useEffect(() => {
@@ -58,11 +110,30 @@ export default function TurnNarrationOverlay({ text, prompt, variantKey }: TurnN
           style={{
             whiteSpace: "pre-wrap",
             lineHeight: 1.6,
-            color: "var(--gray-11)",
             display: "block",
           }}
         >
-          {text}
+          {spokenText && (
+            <span
+              style={{
+                color: "var(--gray-1)",
+                textShadow: "0 0 20px rgba(255, 255, 255, 0.3)",
+                transition: "color 0.15s ease-out",
+              }}
+            >
+              {spokenText}
+            </span>
+          )}
+          {unspokenText && (
+            <span
+              style={{
+                color: "var(--gray-9)",
+                transition: "color 0.15s ease-out",
+              }}
+            >
+              {unspokenText}
+            </span>
+          )}
         </Text>
       </Box>
       <style jsx>{`

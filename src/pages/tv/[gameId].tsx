@@ -23,12 +23,19 @@ export default function TvGameView() {
   const [engineStatus, setEngineStatus] = useState<"idle" | "running" | "cooldown">("idle");
   const [cooldownRemaining, setCooldownRemaining] = useState(0);
   const [engineError, setEngineError] = useState<string | null>(null);
+  const [audioPlaybackTime, setAudioPlaybackTime] = useState(0);
+  const [audioAlignment, setAudioAlignment] = useState<{
+    characters: string[];
+    characterStartTimesSeconds: number[];
+    characterEndTimesSeconds: number[];
+  } | null>(null);
   const sourceRef = useRef<EventSource | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const mediaSourceRef = useRef<MediaSource | null>(null);
   const sourceBufferRef = useRef<SourceBuffer | null>(null);
   const audioChunksQueue = useRef<Uint8Array[]>([]);
   const hasStartedPlayback = useRef(false);
+  const playbackTimeUpdateInterval = useRef<number | null>(null);
 
   const playerCount = game?.players.length ?? 0;
   const canAutoRun = game?.status === "in-progress" && playerCount > 0;
@@ -38,7 +45,6 @@ export default function TvGameView() {
 
   const fetchGame = useCallback(
     async (silent = false) => {
-      return;
       if (!ready || typeof gameId !== "string") return;
       if (!silent) {
         setLoading(true);
@@ -96,11 +102,17 @@ export default function TvGameView() {
     setStreamingImage(null);
     setLivePrompt(null);
     setEngineError(null);
+    setAudioPlaybackTime(0);
+    setAudioAlignment(null);
     sourceRef.current?.close();
     sourceRef.current = null;
     // Stop any playing audio and reset queue
     audioChunksQueue.current = [];
     hasStartedPlayback.current = false;
+    if (playbackTimeUpdateInterval.current) {
+      cancelAnimationFrame(playbackTimeUpdateInterval.current);
+      playbackTimeUpdateInterval.current = null;
+    }
     if (audioRef.current) {
       audioRef.current.pause();
       audioRef.current.src = "";
@@ -170,6 +182,12 @@ export default function TvGameView() {
         // Clear audio queue and reset for new turn
         audioChunksQueue.current = [];
         hasStartedPlayback.current = false;
+        setAudioPlaybackTime(0);
+        setAudioAlignment(null);
+        if (playbackTimeUpdateInterval.current) {
+          cancelAnimationFrame(playbackTimeUpdateInterval.current);
+          playbackTimeUpdateInterval.current = null;
+        }
         if (audioRef.current) {
           audioRef.current.pause();
           audioRef.current.src = "";
@@ -282,6 +300,15 @@ export default function TvGameView() {
               audioRef.current.play().catch((err) => {
                 console.error("Audio autoplay blocked:", err);
               });
+
+              // Start tracking playback time for text highlighting
+              const updatePlaybackTime = () => {
+                if (audioRef.current && !audioRef.current.paused) {
+                  setAudioPlaybackTime(audioRef.current.currentTime);
+                  playbackTimeUpdateInterval.current = requestAnimationFrame(updatePlaybackTime);
+                }
+              };
+              playbackTimeUpdateInterval.current = requestAnimationFrame(updatePlaybackTime);
             }
           } catch (err) {
             console.error("Failed to append audio buffer:", err);
@@ -300,10 +327,45 @@ export default function TvGameView() {
         };
 
         source.addEventListener("audio_chunk", (event) => {
-          const payload = JSON.parse((event as MessageEvent<string>).data) as { chunk?: string; index?: number };
+          const payload = JSON.parse((event as MessageEvent<string>).data) as {
+            chunk?: string;
+            index?: number;
+            alignment?: {
+              characters: string[];
+              characterStartTimesSeconds: number[];
+              characterEndTimesSeconds: number[];
+            };
+            normalizedAlignment?: {
+              characters: string[];
+              characterStartTimesSeconds: number[];
+              characterEndTimesSeconds: number[];
+            };
+          };
           if (!payload.chunk) return;
 
           console.log(`[TV ENGINE ${turnId}] Audio chunk received (index: ${payload.index})`);
+
+          // Accumulate alignment data (prefer normalizedAlignment if available)
+          const alignmentData = payload.normalizedAlignment || payload.alignment;
+          if (alignmentData && alignmentData.characters.length > 0) {
+            setAudioAlignment((prev) => {
+              if (!prev) {
+                return alignmentData;
+              }
+              // Append new alignment data to existing
+              return {
+                characters: [...prev.characters, ...alignmentData.characters],
+                characterStartTimesSeconds: [
+                  ...prev.characterStartTimesSeconds,
+                  ...alignmentData.characterStartTimesSeconds,
+                ],
+                characterEndTimesSeconds: [
+                  ...prev.characterEndTimesSeconds,
+                  ...alignmentData.characterEndTimesSeconds,
+                ],
+              };
+            });
+          }
 
           // Initialize MediaSource on first chunk
           if (!mediaSourceRef.current) {
@@ -581,6 +643,8 @@ export default function TvGameView() {
           narration={displayNarration}
           prompt={displayPrompt}
           variantKey={narrationKey}
+          audioPlaybackTime={audioPlaybackTime}
+          audioAlignment={audioAlignment}
         />
       </Box>
     </Flex>
