@@ -1,13 +1,12 @@
 import { randomUUID } from "crypto";
-import { Buffer } from "node:buffer";
 import { getRedisClient } from "./redis";
+import { uploadPlayerAvatar } from "./imagekit";
 import type { GameState, GameTurn, Player } from "@/types/game";
 
 const GAME_KEY_PREFIX = "game:";
 const CODE_ALPHABET = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ";
 
 const buildKey = (id: string) => `${GAME_KEY_PREFIX}${id}`;
-const MAX_AVATAR_BYTES = 300 * 1024;
 
 type StoredGame = Partial<GameState> & {
   id: string;
@@ -35,7 +34,11 @@ async function persistGame(game: GameState) {
   await client.set(buildKey(game.id), JSON.stringify(normalizeGame(game)));
 }
 
-const sanitizeAvatar = (avatar?: string) => {
+/**
+ * Validate and upload avatar to ImageKit
+ * Returns the ImageKit URL
+ */
+const processAvatar = async (gameId: string, playerId: string, avatar?: string): Promise<string | undefined> => {
   if (!avatar) {
     return undefined;
   }
@@ -44,17 +47,17 @@ const sanitizeAvatar = (avatar?: string) => {
     return undefined;
   }
   if (!trimmed.startsWith("data:image/")) {
-    throw new Error("Avatar must be an image");
+    throw new Error("Avatar must be an image data URL");
   }
-  const base64Part = trimmed.split(",")[1];
-  if (!base64Part) {
-    throw new Error("Invalid avatar data");
+
+  try {
+    const imageUrl = await uploadPlayerAvatar(gameId, playerId, trimmed);
+    return imageUrl;
+  } catch (error) {
+    console.error("Failed to upload avatar to ImageKit:", error);
+    // Allow game to continue without avatar
+    return undefined;
   }
-  const byteSize = Buffer.byteLength(base64Part, "base64");
-  if (byteSize > MAX_AVATAR_BYTES) {
-    throw new Error("Avatar is too large");
-  }
-  return trimmed;
 };
 
 export async function getGame(gameId: string): Promise<GameState | null> {
@@ -125,18 +128,21 @@ export async function addPlayerToGame(
     throw new Error("Player name is required");
   }
 
-  const sanitizedAvatar = sanitizeAvatar(playerAvatar);
-
   const game = await getGame(gameId);
   if (!game) {
     throw new Error("Game not found");
   }
 
+  const playerId = randomUUID();
+
+  // Upload avatar to ImageKit and get URL
+  const avatarUrl = await processAvatar(gameId, playerId, playerAvatar);
+
   const player: Player = {
-    id: randomUUID(),
+    id: playerId,
     name: trimmedName.slice(0, 24),
     joinedAt: Date.now(),
-    avatar: sanitizedAvatar,
+    avatar: avatarUrl,
   };
 
   game.players = [...game.players, player];

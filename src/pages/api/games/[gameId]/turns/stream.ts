@@ -1,9 +1,11 @@
 import type { NextApiRequest, NextApiResponse } from "next";
+import { randomUUID } from "crypto";
 import { getGame, appendTurnToGame } from "@/lib/gameStore";
 import { buildGameLoopSystemPrompt } from "@/lib/promptRenderer";
 import { streamTurnText } from "@/services/textGeneration";
 import { streamTurnImage } from "@/services/imageGeneration";
 import { streamTurnAudio } from "@/services/audioGeneration";
+import { uploadTurnImage } from "@/lib/imagekit";
 
 export const config = {
   api: {
@@ -285,11 +287,28 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       }
     }
 
+    // Upload final image to ImageKit instead of storing base64
+    let imageUrl: string | undefined;
+    if (finalImage) {
+      console.log(`[STREAM ${requestId}] Uploading image to ImageKit`);
+      try {
+        // Extract base64 data from data URL
+        const base64Data = finalImage.replace(/^data:image\/\w+;base64,/, '');
+        const turnId = randomUUID();
+        imageUrl = await uploadTurnImage(game.id, turnId, base64Data);
+        console.log(`[STREAM ${requestId}] Image uploaded to ImageKit: ${imageUrl}`);
+      } catch (error) {
+        console.error(`[STREAM ${requestId}] Failed to upload image to ImageKit:`, error);
+        // Continue without image if upload fails
+        imageUrl = undefined;
+      }
+    }
+
     console.log(`[STREAM ${requestId}] Saving turn to game state`);
     const turn = await appendTurnToGame(game.id, {
       continuation: parsedTurn.continuation,
       imagePrompt: parsedTurn.imagePrompt,
-      image: finalImage,
+      image: imageUrl,
     });
 
     console.log(`[STREAM ${requestId}] Turn saved with ID: ${turn.id}`);

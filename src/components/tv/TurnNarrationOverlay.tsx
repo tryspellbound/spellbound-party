@@ -51,7 +51,8 @@ export default function TurnNarrationOverlay({
     const segments: { text: string; startIndex: number; endIndex: number }[] = [];
 
     // Match sequences of non-whitespace characters (words + punctuation)
-    const wordRegex = /\S+/g;
+    // Match sequences of non-whitespace characters, but split on em-dash
+    const wordRegex = /[^\s—]+/g;
     let match;
 
     while ((match = wordRegex.exec(text)) !== null) {
@@ -61,7 +62,6 @@ export default function TurnNarrationOverlay({
         endIndex: match.index + match[0].length,
       });
     }
-
     // Also capture whitespace between words
     const allSegments: { text: string; startIndex: number; endIndex: number; isWhitespace: boolean }[] = [];
     let lastEnd = 0;
