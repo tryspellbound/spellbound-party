@@ -41,27 +41,78 @@ export default function TurnNarrationOverlay({
     return count;
   }, [audioAlignment, audioPlaybackTime]);
 
-  // Split text into spoken and unspoken portions
-  const { spokenText, unspokenText } = useMemo(() => {
+  // Parse text into word segments (words + attached punctuation)
+  // A word segment is any sequence of non-whitespace characters
+  const wordSegments = useMemo(() => {
+    const segments: { text: string; startIndex: number; endIndex: number }[] = [];
+
+    // Match sequences of non-whitespace characters (words + punctuation)
+    const wordRegex = /\S+/g;
+    let match;
+
+    while ((match = wordRegex.exec(text)) !== null) {
+      segments.push({
+        text: match[0],
+        startIndex: match.index,
+        endIndex: match.index + match[0].length,
+      });
+    }
+
+    // Also capture whitespace between words
+    const allSegments: { text: string; startIndex: number; endIndex: number; isWhitespace: boolean }[] = [];
+    let lastEnd = 0;
+
+    for (const segment of segments) {
+      // Add whitespace before this segment
+      if (segment.startIndex > lastEnd) {
+        allSegments.push({
+          text: text.slice(lastEnd, segment.startIndex),
+          startIndex: lastEnd,
+          endIndex: segment.startIndex,
+          isWhitespace: true,
+        });
+      }
+      // Add the word segment
+      allSegments.push({ ...segment, isWhitespace: false });
+      lastEnd = segment.endIndex;
+    }
+
+    // Add trailing whitespace if any
+    if (lastEnd < text.length) {
+      allSegments.push({
+        text: text.slice(lastEnd),
+        startIndex: lastEnd,
+        endIndex: text.length,
+        isWhitespace: true,
+      });
+    }
+
+    return allSegments;
+  }, [text]);
+
+  // Determine which segments are spoken
+  const highlightedSegments = useMemo(() => {
     if (!audioAlignment || spokenCharacterCount === 0) {
-      return { spokenText: "", unspokenText: text };
+      return wordSegments.map((seg) => ({ ...seg, isSpoken: false }));
     }
 
-    // Reconstruct text from alignment characters
-    const alignmentText = audioAlignment.characters.join("");
+    return wordSegments.map((segment) => {
+      // Whitespace is spoken if it's before the spoken character count
+      if (segment.isWhitespace) {
+        return {
+          ...segment,
+          isSpoken: segment.endIndex <= spokenCharacterCount,
+        };
+      }
 
-    // If alignment text matches our text, use it directly
-    if (alignmentText === text || text.startsWith(alignmentText)) {
-      const spoken = alignmentText.slice(0, spokenCharacterCount);
-      const unspoken = text.slice(spokenCharacterCount);
-      return { spokenText: spoken, unspokenText: unspoken };
-    }
-
-    // Fallback: use character count on original text
-    const spoken = text.slice(0, spokenCharacterCount);
-    const unspoken = text.slice(spokenCharacterCount);
-    return { spokenText: spoken, unspokenText: unspoken };
-  }, [text, audioAlignment, spokenCharacterCount]);
+      // A word is spoken if ANY of its characters have been spoken
+      const wordHasBeenStarted = segment.startIndex < spokenCharacterCount;
+      return {
+        ...segment,
+        isSpoken: wordHasBeenStarted,
+      };
+    });
+  }, [wordSegments, audioAlignment, spokenCharacterCount]);
 
   // Auto-scroll to bottom as text updates
   useEffect(() => {
@@ -113,27 +164,18 @@ export default function TurnNarrationOverlay({
             display: "block",
           }}
         >
-          {spokenText && (
+          {highlightedSegments.map((segment, index) => (
             <span
+              key={index}
               style={{
-                color: "var(--gray-1)",
-                textShadow: "0 0 20px rgba(255, 255, 255, 0.3)",
-                transition: "color 0.15s ease-out",
+                color: segment.isSpoken ? "var(--gray-1)" : "var(--gray-9)",
+                textShadow: segment.isSpoken ? "0 0 20px rgba(255, 255, 255, 0.3)" : "none",
+                transition: "color 0.15s ease-out, text-shadow 0.15s ease-out",
               }}
             >
-              {spokenText}
+              {segment.text}
             </span>
-          )}
-          {unspokenText && (
-            <span
-              style={{
-                color: "var(--gray-9)",
-                transition: "color 0.15s ease-out",
-              }}
-            >
-              {unspokenText}
-            </span>
-          )}
+          ))}
         </Text>
       </Box>
       <style jsx>{`
