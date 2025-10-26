@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { Box, Button, Card, Flex, Heading, Text, TextArea } from "@radix-ui/themes";
-import type { Request, MultipleChoiceRequest, FreeTextRequest, YesNoRequest } from "@/types/game";
+import type { Request, MultipleChoiceRequest, FreeTextRequest, YesNoRequest, DiceRollRequest } from "@/types/game";
 
 type RequestUIProps = {
   request: Request & { voteCounts?: Record<string, number> };
@@ -71,6 +71,10 @@ export default function RequestUI({ request, gameId, playerId, turnNumber, onSub
 
   if (request.type === "yes_no") {
     return <YesNoUI request={request as YesNoRequest} onSubmit={handleSubmit} submitting={submitting} error={error} />;
+  }
+
+  if (request.type === "dice_roll") {
+    return <DiceRollUI request={request as DiceRollRequest} onSubmit={handleSubmit} submitting={submitting} error={error} />;
   }
 
   return null;
@@ -263,6 +267,158 @@ function YesNoUI({
             No
           </Button>
         </Flex>
+
+        {error && (
+          <Text color="red" size="2" align="center">
+            {error}
+          </Text>
+        )}
+      </Flex>
+    </Card>
+  );
+}
+
+function DiceRollUI({
+  request,
+  onSubmit,
+  submitting,
+  error,
+}: {
+  request: DiceRollRequest;
+  onSubmit: (response: string) => void;
+  submitting: boolean;
+  error: string | null;
+}) {
+  const [diceValues, setDiceValues] = useState<number[]>([]);
+  const [hasRolled, setHasRolled] = useState(false);
+
+  const rollDice = () => {
+    const newValues = Array.from({ length: request.diceCount }, () => Math.floor(Math.random() * 6) + 1);
+    setDiceValues(newValues);
+    setHasRolled(true);
+  };
+
+  const handleSubmit = () => {
+    if (diceValues.length > 0) {
+      onSubmit(diceValues.join(","));
+    }
+  };
+
+  const renderDiceFace = (value: number) => {
+    const dots: { [key: number]: number[][] } = {
+      1: [[1, 1]],
+      2: [[0, 0], [2, 2]],
+      3: [[0, 0], [1, 1], [2, 2]],
+      4: [[0, 0], [0, 2], [2, 0], [2, 2]],
+      5: [[0, 0], [0, 2], [1, 1], [2, 0], [2, 2]],
+      6: [[0, 0], [0, 2], [1, 0], [1, 2], [2, 0], [2, 2]],
+    };
+
+    return (
+      <Box
+        style={{
+          width: "100px",
+          height: "100px",
+          backgroundColor: "white",
+          border: "2px solid #333",
+          borderRadius: "12px",
+          display: "grid",
+          gridTemplateColumns: "1fr 1fr 1fr",
+          gridTemplateRows: "1fr 1fr 1fr",
+          gap: "8px",
+          padding: "12px",
+          boxShadow: "0 4px 6px rgba(0,0,0,0.1)",
+        }}
+      >
+        {Array.from({ length: 9 }).map((_, idx) => {
+          const row = Math.floor(idx / 3);
+          const col = idx % 3;
+          const showDot = dots[value]?.some(([r, c]) => r === row && c === col);
+          return (
+            <div
+              key={idx}
+              style={{
+                width: "100%",
+                height: "100%",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+              }}
+            >
+              {showDot && (
+                <div
+                  style={{
+                    width: "14px",
+                    height: "14px",
+                    backgroundColor: "#333",
+                    borderRadius: "50%",
+                  }}
+                />
+              )}
+            </div>
+          );
+        })}
+      </Box>
+    );
+  };
+
+  return (
+    <Card size="4">
+      <Flex direction="column" gap="4" style={{ minHeight: "60vh" }} justify="center" align="center">
+        <Box>
+          <Heading size="6" mb="2" align="center">
+            Roll the Dice!
+          </Heading>
+          <Text size="4" weight="medium" align="center">
+            {request.question}
+          </Text>
+        </Box>
+
+        {hasRolled && diceValues.length > 0 && (
+          <Flex gap="3" justify="center" wrap="wrap">
+            {diceValues.map((value, idx) => (
+              <div key={idx}>{renderDiceFace(value)}</div>
+            ))}
+          </Flex>
+        )}
+
+        {hasRolled && diceValues.length > 0 && (
+          <Text size="5" weight="bold">
+            Total: {diceValues.reduce((sum, val) => sum + val, 0)}
+          </Text>
+        )}
+
+        {!hasRolled ? (
+          <Button
+            size="4"
+            onClick={rollDice}
+            disabled={submitting}
+            style={{ minHeight: "4rem", fontSize: "1.2rem", minWidth: "200px" }}
+          >
+            Roll {request.diceCount} {request.diceCount === 1 ? "Die" : "Dice"}
+          </Button>
+        ) : (
+          <Flex direction="column" gap="3" align="center" style={{ width: "100%" }}>
+            <Button
+              size="4"
+              variant="soft"
+              onClick={rollDice}
+              disabled={submitting}
+              style={{ minWidth: "200px" }}
+            >
+              Roll Again
+            </Button>
+            <Button
+              size="4"
+              onClick={handleSubmit}
+              disabled={submitting}
+              loading={submitting}
+              style={{ minHeight: "4rem", fontSize: "1.2rem", minWidth: "200px" }}
+            >
+              Submit Result
+            </Button>
+          </Flex>
+        )}
 
         {error && (
           <Text color="red" size="2" align="center">

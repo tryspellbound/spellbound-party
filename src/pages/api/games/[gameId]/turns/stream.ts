@@ -250,9 +250,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     sendEvent("turn_status", { status: "preparing" });
 
     const systemPrompt = await buildGameLoopSystemPrompt(game);
+    console.log(`[STREAM ${requestId}] System prompt:`, systemPrompt);
+    const continuationPrompt = game.turns.length > 0 ? `Make sure you're continuing from the turn that just ended. ${JSON.stringify(game.turns[game.turns.length - 1])}` : "";
     const userPrompt =
-      "Generate the very next turn for Spellbound Party. Respond only with the XML schema described in the system prompt. Aim for about 4 paragraphs of content.";
-
+      "Generate the very next turn for Spellbound Party. Respond only with the XML schema described in the system prompt. Aim for at most 3 paragraphs of content. At most we can accept 3 paragraphs of text, any longer and the user will no longer be engaged!" + continuationPrompt;
     console.log(`[STREAM ${requestId}] Starting narration stream`);
     sendEvent("turn_status", { status: "narration" });
     let rawBuffer = "";

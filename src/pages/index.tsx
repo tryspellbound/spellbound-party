@@ -162,6 +162,7 @@ export default function TvLobby() {
                               />
                               <Box>
                                 <Text weight="bold">{player.name}</Text>
+                                <br/>
                                 <Text color="gray" size="2">
                                   Joined {new Date(player.joinedAt).toLocaleTimeString()}
                                 </Text>

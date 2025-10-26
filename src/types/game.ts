@@ -5,7 +5,7 @@ export type Player = {
   avatar?: string;
 };
 
-export type RequestType = "multiple_choice" | "free_text" | "yes_no";
+export type RequestType = "multiple_choice" | "free_text" | "yes_no" | "dice_roll";
 
 export type BaseRequest = {
   id: string;
@@ -30,7 +30,13 @@ export type YesNoRequest = BaseRequest & {
   targetPlayers: [string];
 };
 
-export type Request = MultipleChoiceRequest | FreeTextRequest | YesNoRequest;
+export type DiceRollRequest = BaseRequest & {
+  type: "dice_roll";
+  diceCount: number;
+  targetPlayers: [string];
+};
+
+export type Request = MultipleChoiceRequest | FreeTextRequest | YesNoRequest | DiceRollRequest;
 
 export type RequestResponse = {
   playerId: string;

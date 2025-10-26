@@ -41,6 +41,11 @@ export default function TvGameView() {
   const audioChunksQueue = useRef<Uint8Array[]>([]);
   const hasStartedPlayback = useRef(false);
   const playbackTimeUpdateInterval = useRef<number | null>(null);
+  const audioAlignmentRef = useRef<{
+    characters: string[];
+    characterStartTimesSeconds: number[];
+    characterEndTimesSeconds: number[];
+  } | null>(null);
 
   const playerCount = game?.players.length ?? 0;
   const canAutoRun = game?.status === "in-progress" && playerCount > 0;
@@ -107,6 +112,7 @@ export default function TvGameView() {
     setStreamingImage(null);
     setLivePrompt(null);
     setEngineError(null);
+    audioAlignmentRef.current = null;
     setAudioPlaybackTime(0);
     setAudioAlignment(null);
     sourceRef.current?.close();
@@ -119,8 +125,13 @@ export default function TvGameView() {
       playbackTimeUpdateInterval.current = null;
     }
     if (audioRef.current) {
-      audioRef.current.pause();
-      audioRef.current.src = "";
+      // Remove ALL event listeners before cleanup
+      const audio = audioRef.current;
+      audio.onended = null;
+      audio.onpause = null;
+      audio.onerror = null;
+      audio.pause();
+      audio.src = "";
     }
     if (mediaSourceRef.current) {
       if (mediaSourceRef.current.readyState === "open") {
@@ -187,6 +198,7 @@ export default function TvGameView() {
         // Clear audio queue and reset for new turn
         audioChunksQueue.current = [];
         hasStartedPlayback.current = false;
+        audioAlignmentRef.current = null;
         setAudioPlaybackTime(0);
         setAudioAlignment(null);
         if (playbackTimeUpdateInterval.current) {
@@ -300,6 +312,18 @@ export default function TvGameView() {
           try {
             sourceBuffer.appendBuffer(chunk.buffer as ArrayBuffer);
 
+            // Proactively trim buffer to prevent quota errors
+            if (audioRef.current && audioRef.current.currentTime > 15) {
+              const removeUpTo = audioRef.current.currentTime - 10;
+              if (removeUpTo > 0 && !sourceBuffer.updating) {
+                try {
+                  sourceBuffer.remove(0, removeUpTo);
+                } catch (e) {
+                  // Ignore removal errors
+                }
+              }
+            }
+
             // Start playback after first chunk is buffered
             if (!hasStartedPlayback.current && audioRef.current) {
               hasStartedPlayback.current = true;
@@ -354,23 +378,19 @@ export default function TvGameView() {
           // Accumulate alignment data (prefer normalizedAlignment if available)
           const alignmentData = payload.normalizedAlignment || payload.alignment;
           if (alignmentData && alignmentData.characters.length > 0) {
-            setAudioAlignment((prev) => {
-              if (!prev) {
-                return alignmentData;
-              }
-              // Append new alignment data to existing
-              return {
-                characters: [...prev.characters, ...alignmentData.characters],
-                characterStartTimesSeconds: [
-                  ...prev.characterStartTimesSeconds,
-                  ...alignmentData.characterStartTimesSeconds,
-                ],
-                characterEndTimesSeconds: [
-                  ...prev.characterEndTimesSeconds,
-                  ...alignmentData.characterEndTimesSeconds,
-                ],
-              };
-            });
+            if (!audioAlignmentRef.current) {
+              audioAlignmentRef.current = { ...alignmentData };
+            } else {
+              // Mutate the ref directly - no re-render, no spread
+              audioAlignmentRef.current.characters.push(...alignmentData.characters);
+              audioAlignmentRef.current.characterStartTimesSeconds.push(...alignmentData.characterStartTimesSeconds);
+              audioAlignmentRef.current.characterEndTimesSeconds.push(...alignmentData.characterEndTimesSeconds);
+            }
+
+            // Only update state occasionally for UI updates (e.g., every 5th chunk)
+            if (payload.index && payload.index % 5 === 0) {
+              setAudioAlignment({ ...audioAlignmentRef.current });
+            }
           }
 
           // Initialize MediaSource on first chunk
@@ -397,6 +417,11 @@ export default function TvGameView() {
 
         source.addEventListener("audio_complete", () => {
           console.log(`[TV ENGINE ${turnId}] Audio streaming complete`);
+
+          // Update state one final time with all alignment data
+          if (audioAlignmentRef.current) {
+            setAudioAlignment({ ...audioAlignmentRef.current });
+          }
 
           // End the stream once all chunks are appended
           const tryEndStream = async () => {
@@ -674,8 +699,13 @@ export default function TvGameView() {
     () => () => {
       sourceRef.current?.close();
       if (audioRef.current) {
-        audioRef.current.pause();
-        audioRef.current.src = "";
+        // Remove ALL event listeners before cleanup
+        const audio = audioRef.current;
+        audio.onended = null;
+        audio.onpause = null;
+        audio.onerror = null;
+        audio.pause();
+        audio.src = "";
       }
       if (mediaSourceRef.current) {
         if (mediaSourceRef.current.readyState === "open") {
