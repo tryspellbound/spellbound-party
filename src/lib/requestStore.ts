@@ -64,7 +64,7 @@ export async function submitRequestResponse(
     timestamp: Date.now(),
   };
 
-  await client.hset(requestKey, playerId, JSON.stringify(requestResponse));
+  await client.HSET(requestKey, playerId, JSON.stringify(requestResponse));
 }
 
 /**

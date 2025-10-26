@@ -12,7 +12,7 @@ import {
   cleanupRequestKeys,
   waitForAudioPlayback,
 } from "@/lib/requestStore";
-import type { Request, MultipleChoiceRequest, FreeTextRequest, YesNoRequest, Player } from "@/types/game";
+import type { Request, MultipleChoiceRequest, FreeTextRequest, YesNoRequest, Player, RequestResponse } from "@/types/game";
 
 export const config = {
   api: {
