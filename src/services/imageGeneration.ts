@@ -32,25 +32,15 @@ const getImageClient = () => {
 
 export async function streamTurnImage({ prompt, onEvent, signal }: ImageStreamOptions) {
   const client = getImageClient();
-  const model = process.env.OPENAI_IMAGE_MODEL ?? "gpt-image-1";
-  const size = process.env.OPENAI_IMAGE_SIZE ?? "1024x1024";
+  const model = process.env.OPENAI_IMAGE_MODEL ?? "gpt-image-1-mini";
 
   const stream = await client.images.generate({
     model,
     prompt,
-    size: size as
-      | "auto"
-      | "1024x1024"
-      | "1536x1024"
-      | "1024x1536"
-      | "256x256"
-      | "512x512"
-      | "1792x1024"
-      | "1024x1792",
-    response_format: "b64_json",
+    size: "1024x1536",
     stream: true,
     n: 1,
-    partial_images: 1,
+    partial_images: 3,
     output_format: "png",
   });
 
