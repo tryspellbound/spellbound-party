@@ -167,8 +167,11 @@ export default function TurnNarrationOverlay({
     const wordBottom = wordRect.bottom - containerRect.top;
     const containerHeight = containerRect.height;
 
-    // If the word is below the visible area, scroll it into view
-    if (wordBottom > containerHeight) {
+    // Add ~1 line margin (60px) so it scrolls before the word reaches the bottom
+    const scrollMargin = 60;
+
+    // If the word is near the bottom, scroll it into view
+    if (wordBottom > containerHeight - scrollMargin) {
       currentWord.scrollIntoView({
         behavior: "smooth",
         block: "center",
@@ -203,11 +206,10 @@ export default function TurnNarrationOverlay({
         left: 0,
         right: 0,
         padding: "3rem",
-        background: "linear-gradient(180deg, transparent 0%, var(--black-a11) 30%, var(--black-a12) 60%)",
+        background: "linear-gradient(180deg, rgba(0, 0, 0, 0) 0%, rgba(0, 0, 0, 0.5) 30%, rgba(0, 0, 0, 0.5) 60%)",
         display: "flex",
         flexDirection: "column",
         gap: "1rem",
-        backdropFilter: "blur(8px)",
       }}
     >
       <Box
@@ -223,18 +225,29 @@ export default function TurnNarrationOverlay({
         }}
       >
         <Text
-          size="7"
+          size="8"
           style={{
             whiteSpace: "pre-wrap",
-            lineHeight: 1.6,
+            lineHeight: 1.8,
             display: "block",
+            fontFamily: "var(--font-luxurious-roman), serif",
           }}
         >
           {highlightedSegments.map((segment, index) => {
             const isCurrentWord = index === firstUnspokenWordIndex;
+            const prevSegment = index > 0 ? highlightedSegments[index - 1] : null;
 
             // Hide bracketed content
             if (segment.inBrackets) {
+              return (
+                <span key={index} style={{ display: "none" }}>
+                  {segment.text}
+                </span>
+              );
+            }
+
+            // Hide whitespace that immediately follows a bracketed segment
+            if (segment.isWhitespace && prevSegment?.inBrackets) {
               return (
                 <span key={index} style={{ display: "none" }}>
                   {segment.text}

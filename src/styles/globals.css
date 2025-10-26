@@ -8,11 +8,21 @@
   --font-geist-mono: "IBM Plex Mono", "SFMono-Regular", Consolas, "Liberation Mono", monospace;
 }
 
+/* Configure Luxurious Roman as the serif font for Radix UI */
+:root.radix-themes {
+  --default-font-family: var(--font-geist-sans);
+  --heading-font-family: var(--font-geist-sans);
+  --code-font-family: var(--font-geist-mono);
+  --em-font-family: var(--font-luxurious-roman);
+  --quote-font-family: var(--font-luxurious-roman);
+}
+
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
+  --font-serif: var(--font-luxurious-roman);
 }
 
 @media (prefers-color-scheme: dark) {
