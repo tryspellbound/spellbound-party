@@ -1,4 +1,4 @@
-import { Box, Text } from "@radix-ui/themes";
+import { Box, Container, Text } from "@radix-ui/themes";
 import { useEffect, useRef, useState, useMemo } from "react";
 
 type TurnNarrationOverlayProps = {
@@ -198,6 +198,7 @@ export default function TurnNarrationOverlay({
   );
 
   return (
+    <Container size={"2"} className="max-w-xl">
     <Box
       className={`turn-overlay ${animate ? "turn-overlay--animate" : ""}`}
       style={{
@@ -231,6 +232,8 @@ export default function TurnNarrationOverlay({
             lineHeight: 1.8,
             display: "block",
             fontFamily: "var(--font-luxurious-roman), serif",
+            maxWidth: "50rem",
+            margin: "0 auto",
           }}
         >
           {highlightedSegments.map((segment, index) => {
@@ -301,6 +304,7 @@ export default function TurnNarrationOverlay({
         }
       `}</style>
     </Box>
+    </Container>
   );
 }
 
