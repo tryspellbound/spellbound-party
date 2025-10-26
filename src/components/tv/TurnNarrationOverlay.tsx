@@ -201,12 +201,9 @@ export default function TurnNarrationOverlay({
     <Box
       className={`turn-overlay ${animate ? "turn-overlay--animate" : ""}`}
       style={{
-        padding: "2rem",
-        background: "linear-gradient(180deg, rgba(0, 0, 0, 0) 0%, rgba(0, 0, 0, 0.5) 30%, rgba(0, 0, 0, 0.5) 60%)",
         display: "flex",
         flexDirection: "column",
         gap: "1rem",
-        borderRadius: "16px",
       }}
     >
       <Box

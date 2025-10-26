@@ -61,8 +61,11 @@ export default function TurnShowcase({ imageSrc, narration, prompt, variantKey, 
           bottom: "2rem",
           left: "2rem",
           right: "2rem",
-          alignItems: "flex-end",
+          alignItems: "center",
           gap: "2rem",
+          padding: "2rem",
+          background: "linear-gradient(180deg, rgba(0, 0, 0, 0) 0%, rgba(0, 0, 0, 0.5) 30%, rgba(0, 0, 0, 0.6) 70%, rgba(0, 0, 0, 0.0) 100%)",
+          borderRadius: "16px",
         }}
       >
         {/* Avatar on the left */}

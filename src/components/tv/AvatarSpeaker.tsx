@@ -17,9 +17,6 @@ export default function AvatarSpeaker({ audioElement }: AvatarSpeakerProps) {
         height: '200px',
         borderRadius: '16px',
         overflow: 'hidden',
-        //boxShadow: '0 8px 32px rgba(0, 0, 0, 0.6)',
-        //border: '1px solid rgba(255, 255, 255, 0.1)',
-        background: 'linear-gradient(180deg, rgba(0, 0, 0, 0.1) 0%, rgba(0, 0, 0, 0.4) 100%)',
       }}
     >
         <Canvas
