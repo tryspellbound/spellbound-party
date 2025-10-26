@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, type JSX } from 'react';
 import { useFrame, useGraph } from '@react-three/fiber';
 import { useGLTF } from '@react-three/drei';
-import { Lipsync } from 'wawa-lipsync';
+import { Lipsync, VISEMES } from 'wawa-lipsync';
 import { SkeletonUtils } from 'three-stdlib';
 import type { GLTF } from 'three-stdlib';
 import * as THREE from 'three';
@@ -63,13 +63,34 @@ export function LipSyncAvatar({ audioElement, ...props }: LipSyncAvatarProps) {
     };
   }, [audioElement, lipsyncManager]);
 
-  // Process audio and apply visemes to head and teeth meshes in render loop
+  // Helper to lerp morph target values across all meshes in the scene
+  const lerpMorphTarget = (target: string, value: number, speed = 0.1) => {
+    clone.traverse((child) => {
+      if (child instanceof THREE.SkinnedMesh && child.morphTargetDictionary) {
+        const index = child.morphTargetDictionary[target];
+        if (
+          index === undefined ||
+          child.morphTargetInfluences === undefined ||
+          child.morphTargetInfluences[index] === undefined
+        ) {
+          return;
+        }
+        child.morphTargetInfluences[index] = THREE.MathUtils.lerp(
+          child.morphTargetInfluences[index],
+          value,
+          speed
+        );
+      }
+    });
+  };
+
+  // Process audio and apply visemes in render loop
   useFrame(() => {
     if (!audioElement || !connectedAudioRef.current) {
       return;
     }
 
-    // Process audio to get current viseme data
+    // Process audio to get current viseme (returns a string like "viseme_O")
     lipsyncManager.processAudio();
     const viseme = lipsyncManager.viseme;
 
@@ -77,46 +98,15 @@ export function LipSyncAvatar({ audioElement, ...props }: LipSyncAvatarProps) {
       return;
     }
 
-    const head = nodes.Wolf3D_Head;
-    const teeth = nodes.Wolf3D_Teeth;
+    // Lerp the current viseme to 1
+    lerpMorphTarget(viseme, 1, 0.3);
 
-    // Reset all morph target influences to 0
-    if (head.morphTargetInfluences) {
-      for (let i = 0; i < head.morphTargetInfluences.length; i++) {
-        head.morphTargetInfluences[i] = 0;
+    // Lerp all other visemes to 0
+    Object.values(VISEMES).forEach((visemeValue) => {
+      if (viseme === visemeValue) {
+        return;
       }
-    }
-
-    if (teeth.morphTargetInfluences) {
-      for (let i = 0; i < teeth.morphTargetInfluences.length; i++) {
-        teeth.morphTargetInfluences[i] = 0;
-      }
-    }
-    console.log("viseme", viseme);
-    console.log("head.morphTargetDictionary", head.morphTargetDictionary);
-    console.log("head.morphTargetInfluences", head.morphTargetInfluences);
-    console.log("teeth.morphTargetDictionary", teeth.morphTargetDictionary);
-    console.log("teeth.morphTargetInfluences", teeth.morphTargetInfluences);
-
-    // Apply new viseme influences
-    Object.entries(viseme).forEach(([visemeName, value]) => {
-      const numericValue = typeof value === 'number' ? value : 0;
-
-      // Apply to head
-      if (head.morphTargetDictionary && head.morphTargetInfluences) {
-        const headIndex = head.morphTargetDictionary[visemeName];
-        if (headIndex !== undefined) {
-          head.morphTargetInfluences[headIndex] = numericValue;
-        }
-      }
-
-      // Apply to teeth
-      if (teeth.morphTargetDictionary && teeth.morphTargetInfluences) {
-        const teethIndex = teeth.morphTargetDictionary[visemeName];
-        if (teethIndex !== undefined) {
-          teeth.morphTargetInfluences[teethIndex] = numericValue;
-        }
-      }
+      lerpMorphTarget(visemeValue, 0, 0.15);
     });
   });
 
