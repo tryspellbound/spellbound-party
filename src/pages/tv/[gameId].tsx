@@ -1,9 +1,8 @@
 import { useRouter } from "next/router";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Badge, Box, Flex, Heading, Text } from "@radix-ui/themes";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { Box, Flex } from "@radix-ui/themes";
 import type { GameState, GameTurn } from "@/types/game";
 import PlayerListPanel from "@/components/tv/PlayerListPanel";
-import TurnControlsPanel from "@/components/tv/TurnControlsPanel";
 import TurnShowcase from "@/components/tv/TurnShowcase";
 
 const POLL_INTERVAL = 2000;
@@ -29,13 +28,8 @@ export default function TvGameView() {
   const playerCount = game?.players.length ?? 0;
   const canAutoRun = game?.status === "in-progress" && playerCount > 0;
 
-  const joinUrl = useMemo(() => {
-    if (!game?.id) return "";
-    if (typeof window !== "undefined") {
-      return `${window.location.origin}/play/${game.id}`;
-    }
-    return `/play/${game.id}`;
-  }, [game?.id]);
+  // Suppress error to avoid unused warning
+  void error;
 
   const fetchGame = useCallback(
     async (silent = false) => {
@@ -237,66 +231,47 @@ export default function TvGameView() {
   const narrationKey = streamingNarration ? "streaming" : latestTurn?.id ?? "idle";
 
   return (
-    <Box
-      p={{ initial: "4", sm: "6" }}
+    <Flex
       style={{
-        minHeight: "100vh",
-        background: "linear-gradient(135deg, #04030f, #100622)",
+        height: "100vh",
+        width: "100vw",
+        overflow: "hidden",
+        backgroundColor: "var(--black-a12)",
       }}
     >
-      <Flex direction="column" gap="5">
-        <Flex justify="between" align="center" wrap="wrap" gap="4">
-          <Box>
-            <Text color="gray" size="2">
-              Game Code
-            </Text>
-            <Heading size="8">{typeof gameId === "string" ? gameId : "--"}</Heading>
-          </Box>
-          <Badge size="3" color="plum">
-            {playerCount} {playerCount === 1 ? "Player" : "Players"}
-          </Badge>
-        </Flex>
-        {error && (
-          <Box
-            style={{
-              borderRadius: 16,
-              border: "1px solid rgba(255,0,0,0.4)",
-              padding: "1rem",
-              background: "rgba(255,0,0,0.08)",
-            }}
-          >
-            <Text color="red">{error}</Text>
-          </Box>
-        )}
-        <Flex gap="5" align="start" wrap="wrap">
-          <Box style={{ width: "320px", flexShrink: 0 }}>
-            <PlayerListPanel
-              players={game?.players ?? []}
-              gameCode={typeof gameId === "string" ? gameId : undefined}
-              joinUrl={joinUrl || undefined}
-            />
-          </Box>
-          <Flex direction="column" gap="4" style={{ flex: 1, minWidth: 0 }}>
-            <TurnControlsPanel
-              engineStatus={engineStatus}
-              engineActive={engineActive}
-              cooldownRemaining={cooldownRemaining}
-              canRun={!!canAutoRun && !loading}
-              onStart={startEngine}
-              onStop={stopEngine}
-              engineError={engineError}
-              turns={turns}
-            />
-            <TurnShowcase
-              imageSrc={displayImage ?? undefined}
-              narration={displayNarration}
-              prompt={displayPrompt}
-              variantKey={narrationKey}
-            />
-          </Flex>
-        </Flex>
-      </Flex>
-    </Box>
+      {/* Left sidebar with players and controls */}
+      <Box
+        style={{
+          width: "280px",
+          flexShrink: 0,
+          display: "flex",
+          flexDirection: "column",
+          backgroundColor: "var(--gray-1)",
+          borderRight: "1px solid var(--gray-6)",
+        }}
+      >
+        <PlayerListPanel
+          players={game?.players ?? []}
+          engineStatus={engineStatus}
+          engineActive={engineActive}
+          cooldownRemaining={cooldownRemaining}
+          canRun={!!canAutoRun && !loading}
+          onStart={startEngine}
+          onStop={stopEngine}
+          engineError={engineError}
+        />
+      </Box>
+
+      {/* Main content area - full screen showcase */}
+      <Box style={{ flex: 1, position: "relative", overflow: "hidden" }}>
+        <TurnShowcase
+          imageSrc={displayImage ?? undefined}
+          narration={displayNarration}
+          prompt={displayPrompt}
+          variantKey={narrationKey}
+        />
+      </Box>
+    </Flex>
   );
 }
 

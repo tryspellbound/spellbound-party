@@ -1,84 +1,103 @@
-import { Avatar, Badge, Box, Card, Flex, Heading, Text } from "@radix-ui/themes";
+import { Avatar, Box, Button, Flex, ScrollArea, Separator, Text } from "@radix-ui/themes";
 import type { Player } from "@/types/game";
 
 type PlayerListPanelProps = {
   players: Player[];
-  gameCode?: string;
-  joinUrl?: string;
+  engineStatus: "idle" | "running" | "cooldown";
+  engineActive: boolean;
+  cooldownRemaining: number;
+  canRun: boolean;
+  onStart: () => void;
+  onStop: () => void;
+  engineError?: string | null;
 };
 
-export default function PlayerListPanel({ players, gameCode, joinUrl }: PlayerListPanelProps) {
+export default function PlayerListPanel({
+  players,
+  engineStatus,
+  engineActive,
+  cooldownRemaining,
+  canRun,
+  onStart,
+  onStop,
+  engineError,
+}: PlayerListPanelProps) {
   return (
-    <Card
-      variant="surface"
+    <Flex
+      direction="column"
       style={{
-        minHeight: "75vh",
-        display: "flex",
-        flexDirection: "column",
-        gap: "1rem",
+        height: "100%",
+        padding: "1.5rem",
+        gap: "1.5rem",
       }}
     >
-      <Heading size="4">Adventurers</Heading>
-      <Flex direction="column" gap="3" style={{ flex: 1 }}>
-        {players.length === 0 ? (
-          <Flex
-            align="center"
-            justify="center"
-            style={{
-              borderRadius: 12,
-              border: "1px dashed rgba(255,255,255,0.2)",
-              padding: "2rem 1rem",
-            }}
-          >
-            <Text color="gray" align="center">
-              No heroes yet.
-              <br />
-              Share the code to gather the party.
-            </Text>
-          </Flex>
-        ) : (
+      {/* Players Section */}
+      <Box style={{ flex: 1, minHeight: 0 }}>
+        <Text size="2" weight="bold" mb="3" style={{ display: "block", color: "var(--gray-11)" }}>
+          Adventurers
+        </Text>
+        <ScrollArea style={{ height: "100%" }}>
           <Flex direction="column" gap="2">
-            {players.map((player) => (
-              <Card key={player.id} variant="classic">
-                <Flex align="center" justify="between" gap="3">
-                  <Flex align="center" gap="3">
-                    <Avatar
-                      size="3"
-                      radius="full"
-                      src={player.avatar}
-                      fallback={(player.name[0] ?? "?").toUpperCase()}
-                    />
-                    <Text weight="bold">{player.name}</Text>
-                  </Flex>
-                  <Text size="2" color="gray">
-                    {new Date(player.joinedAt).toLocaleTimeString()}
+            {players.length === 0 ? (
+              <Text size="2" style={{ color: "var(--gray-9)" }}>
+                Waiting for players...
+              </Text>
+            ) : (
+              players.map((player) => (
+                <Flex key={player.id} align="center" gap="2">
+                  <Avatar
+                    size="2"
+                    radius="full"
+                    src={player.avatar}
+                    fallback={(player.name[0] ?? "?").toUpperCase()}
+                  />
+                  <Text size="2" weight="medium" style={{ color: "var(--gray-12)" }}>
+                    {player.name}
                   </Text>
                 </Flex>
-              </Card>
-            ))}
+              ))
+            )}
           </Flex>
-        )}
-      </Flex>
+        </ScrollArea>
+      </Box>
+
+      <Separator size="4" />
+
+      {/* Controls Section */}
       <Box>
-        <Text size="2" color="gray">
-          Lobby Code
+        <Text size="2" weight="bold" mb="3" style={{ display: "block", color: "var(--gray-11)" }}>
+          Turn Engine
         </Text>
-        <Flex align="center" gap="2" mt="1">
-          <Badge color="iris" radius="full">
-            {gameCode ?? "--"}
-          </Badge>
-          {joinUrl && (
-            <Text
-              size="2"
+        <Flex direction="column" gap="2">
+          <Flex gap="2">
+            <Button onClick={onStart} disabled={!canRun || engineActive} size="2" style={{ flex: 1 }}>
+              Start
+            </Button>
+            <Button
+              variant="soft"
               color="gray"
-              title={joinUrl}
-              style={{ maxWidth: "160px", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}
+              onClick={onStop}
+              disabled={!engineActive}
+              size="2"
+              style={{ flex: 1 }}
             >
-              {joinUrl}
+              Stop
+            </Button>
+          </Flex>
+          {engineStatus !== "idle" && (
+            <Text size="1" style={{ color: "var(--gray-10)" }}>
+              {engineStatus === "running"
+                ? "Generating..."
+                : `Cooldown: ${cooldownRemaining}s`}
+            </Text>
+          )}
+          {engineError && (
+            <Text size="1" style={{ color: "var(--red-9)" }}>
+              {engineError}
             </Text>
           )}
         </Flex>
       </Box>
-    </Card>
+    </Flex>
   );
 }

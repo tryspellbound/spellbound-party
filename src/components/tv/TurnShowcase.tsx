@@ -13,11 +13,10 @@ export default function TurnShowcase({ imageSrc, narration, prompt, variantKey }
     <Box
       style={{
         position: "relative",
-        borderRadius: "32px",
+        width: "100%",
+        height: "100%",
         overflow: "hidden",
-        boxShadow: "0 40px 130px rgba(10,6,29,0.45)",
-        minHeight: "65vh",
-        background: "radial-gradient(circle at top, rgba(66,43,255,0.2), #050312 70%)",
+        backgroundColor: "var(--black-a12)",
       }}
     >
       {imageSrc ? (
@@ -39,14 +38,10 @@ export default function TurnShowcase({ imageSrc, narration, prompt, variantKey }
             display: "flex",
             alignItems: "center",
             justifyContent: "center",
-            color: "rgba(255,255,255,0.7)",
-            fontSize: "1.2rem",
-            textAlign: "center",
-            padding: "2rem",
           }}
         >
-          <Text size="4" color="gray">
-            Awaiting the next illustration…
+          <Text size="4" style={{ color: "var(--gray-8)" }}>
+            Awaiting artwork...
           </Text>
         </Box>
       )}

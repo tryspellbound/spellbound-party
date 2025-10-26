@@ -11,6 +11,7 @@ export default function TurnNarrationOverlay({ text, prompt, variantKey }: TurnN
   const scrollRef = useRef<HTMLDivElement>(null);
   const [animate, setAnimate] = useState(false);
 
+  // Auto-scroll to bottom as text updates
   useEffect(() => {
     if (scrollRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
@@ -31,35 +32,36 @@ export default function TurnNarrationOverlay({ text, prompt, variantKey }: TurnN
         bottom: 0,
         left: 0,
         right: 0,
-        padding: "1.5rem",
-        background: "linear-gradient(180deg, rgba(3,3,12,0) 0%, rgba(2,2,10,0.95) 45%)",
-        borderBottomLeftRadius: "32px",
-        borderBottomRightRadius: "32px",
-        minHeight: "40%",
+        padding: "3rem",
+        background: "linear-gradient(180deg, transparent 0%, var(--black-a11) 30%, var(--black-a12) 60%)",
+        minHeight: "50%",
+        maxHeight: "80%",
         display: "flex",
         flexDirection: "column",
-        gap: "0.75rem",
-        backdropFilter: "blur(4px)",
+        gap: "1rem",
+        backdropFilter: "blur(8px)",
       }}
     >
-      {prompt && (
-        <Text
-          size="2"
-          color="gray"
-          style={{ textTransform: "uppercase", letterSpacing: "0.08em", fontWeight: 600 }}
-        >
-          {prompt}
-        </Text>
-      )}
       <Box
         ref={scrollRef}
         style={{
-          maxHeight: "calc(40vh - 3rem)",
+          flex: 1,
           overflowY: "auto",
-          paddingRight: "0.5rem",
+          overflowX: "hidden",
+          paddingRight: "1rem",
+          maskImage: "linear-gradient(to bottom, transparent 0%, black 5%, black 95%, transparent 100%)",
+          WebkitMaskImage: "linear-gradient(to bottom, transparent 0%, black 5%, black 95%, transparent 100%)",
         }}
       >
-        <Text size="5" style={{ whiteSpace: "pre-wrap", lineHeight: 1.4 }}>
+        <Text
+          size="7"
+          style={{
+            whiteSpace: "pre-wrap",
+            lineHeight: 1.6,
+            color: "var(--gray-11)",
+            display: "block",
+          }}
+        >
           {text}
         </Text>
       </Box>
@@ -70,12 +72,26 @@ export default function TurnNarrationOverlay({ text, prompt, variantKey }: TurnN
         @keyframes fadeInOverlay {
           from {
             opacity: 0.4;
-            transform: translateY(8px);
+            transform: translateY(12px);
           }
           to {
             opacity: 1;
             transform: translateY(0);
           }
+        }
+        /* Custom scrollbar styling */
+        .turn-overlay ::-webkit-scrollbar {
+          width: 8px;
+        }
+        .turn-overlay ::-webkit-scrollbar-track {
+          background: transparent;
+        }
+        .turn-overlay ::-webkit-scrollbar-thumb {
+          background: var(--gray-8);
+          border-radius: 4px;
+        }
+        .turn-overlay ::-webkit-scrollbar-thumb:hover {
+          background: var(--gray-9);
         }
       `}</style>
     </Box>
