@@ -221,8 +221,9 @@ export default function TvGameView() {
           }
         };
 
-        source.addEventListener("continuation_chunk", (event) => {
+        source.addEventListener("continuation_complete", (event) => {
           const payload = JSON.parse((event as MessageEvent<string>).data) as { text?: string };
+          console.log(`[TV ENGINE ${turnId}] Continuation complete received (${payload.text?.length ?? 0} chars)`);
           setStreamingNarration(payload.text ?? "");
         });
 

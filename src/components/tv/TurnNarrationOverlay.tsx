@@ -179,12 +179,12 @@ export default function TurnNarrationOverlay({
     }
   }, [spokenCharacterCount]);
 
-  // Initial scroll to bottom when text changes
+  // Scroll to top instantly when text changes
   useEffect(() => {
-    if (scrollRef.current && !audioAlignment) {
-      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+    if (scrollRef.current) {
+      scrollRef.current.scrollTop = 0;
     }
-  }, [text, audioAlignment]);
+  }, [variantKey]);
 
   useEffect(() => {
     setAnimate(true);
@@ -258,14 +258,21 @@ export default function TurnNarrationOverlay({
               );
             }
 
+            // Calculate word index for animation stagger (only count non-whitespace segments)
+            const wordIndex = highlightedSegments
+              .slice(0, index)
+              .filter(seg => !seg.isWhitespace && !seg.inBrackets).length;
+
             return (
               <span
                 key={index}
                 ref={isCurrentWord ? currentWordRef : undefined}
+                className={animate && !segment.isWhitespace ? "word-fade-in" : ""}
                 style={{
                   color: segment.isSpoken ? "var(--gray-12)" : "var(--gray-11)",
                   textShadow: segment.isSpoken ? "0 0 20px rgba(255, 255, 255, 0.3)" : "none",
                   transition: "color 0.15s ease-out, text-shadow 0.15s ease-out",
+                  animationDelay: !segment.isWhitespace ? `${wordIndex * 0.03}s` : undefined,
                 }}
               >
                 {segment.text}
@@ -286,6 +293,18 @@ export default function TurnNarrationOverlay({
           to {
             opacity: 1;
             transform: translateY(0);
+          }
+        }
+        .word-fade-in {
+          animation: wordFadeIn 0.4s ease-out forwards;
+          opacity: 0;
+        }
+        @keyframes wordFadeIn {
+          from {
+            opacity: 0;
+          }
+          to {
+            opacity: 1;
           }
         }
         /* Custom scrollbar styling */

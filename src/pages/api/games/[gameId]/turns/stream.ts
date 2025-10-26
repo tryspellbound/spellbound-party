@@ -152,7 +152,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     console.log(`[STREAM ${requestId}] Starting narration stream`);
     sendEvent("turn_status", { status: "narration" });
     let rawBuffer = "";
-    let streamingContinuation = "";
     let imagePrompt: string | undefined;
     let imageTask: Promise<string> | null = null;
     let finalImage: string | undefined;
@@ -209,14 +208,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
             }
           }
         }
-        const continuationSegment = getTagSegment(rawBuffer, "continuation");
-        if (continuationSegment) {
-          const cleanText = stripCdata(continuationSegment.content);
-          if (cleanText !== streamingContinuation) {
-            streamingContinuation = cleanText;
-            sendEvent("continuation_chunk", { text: streamingContinuation });
-          }
-        }
+        // No longer streaming continuation chunks - will send complete continuation at the end
       },
     });
 
